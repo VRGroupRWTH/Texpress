@@ -10,6 +10,9 @@
 #include <texpress/graphics/render_passes/gui_pass.hpp>
 #include <texpress/graphics/render_pass.hpp>
 #include <texpress/graphics/renderer.hpp>
+#include <texpress/events/events/system_event.hpp>
+#include <texpress/events/event.hpp>
+#include <texpress/events/eventsystem.hpp>
 #include <texpress/io/file_io.hpp>
 #include <texpress/io/image_io.hpp>
 #include <texpress/io/regular_grid_io.hpp>

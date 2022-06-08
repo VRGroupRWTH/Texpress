@@ -1,5 +1,5 @@
 #pragma once
-
+#include <texpress/export.hpp>
 #include <string>
 
 namespace texpress {
@@ -14,7 +14,7 @@ namespace texpress {
   */
 
   template <typename T>
-  class Event {
+  class TEXPRESS_EXPORT Event {
   protected:
     T _type;
     std::string _name;
@@ -23,7 +23,6 @@ namespace texpress {
   public:
     Event() = default;
     Event(T type, const std::string& name = "") : _type(type), _name(name) {};
-    virtual ~Event();
 
     inline const T type() const { return _type; };
     inline const std::string& getName() const { return _name; };
