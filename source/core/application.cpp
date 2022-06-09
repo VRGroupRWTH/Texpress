@@ -63,4 +63,15 @@ void application::run()
     for (auto& system : systems_)
       system->on_update();
 }
+
+void application::quit()
+{
+  glfwSetWindowShouldClose(window_, GLFW_TRUE);
+}
+
+void application::listener(const Event& e)
+{
+  if (e.mType == EventType::APP_SHUTDOWN)
+    glfwSetWindowShouldClose(window_, GLFW_TRUE);
+}
 }

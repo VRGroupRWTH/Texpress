@@ -6,6 +6,7 @@ set_property          (GLOBAL PROPERTY USE_FOLDERS ON)
 set                   (CMAKE_CXX_STANDARD 17)
 set                   (CMAKE_CXX_VISIBILITY_PRESET hidden)
 set                   (CMAKE_VISIBILITY_INLINES_HIDDEN 1)
+set                   (EXTERNAL_INSTALL_LOCATION ${CMAKE_BINARY_DIR}/external)
 
 include               (set_max_warning_level)
 set_max_warning_level ()
@@ -33,6 +34,22 @@ assign_source_group(${PROJECT_FILES})
 ##################################################  Dependencies  ##################################################
 include(import_library)
 
+# ADD LIBRARIES HERE. Vcpkg toolchain file will automatically locate them.
+# Examples:
+# - Header Only:
+#   find_package  (GLM REQUIRED)
+#   import_library(GLM_INCLUDE_DIRS)
+# - Identical Debug and Release:
+#   find_package  (OpenGL REQUIRED)
+#   import_library(OPENGL_INCLUDE_DIR OPENGL_LIBRARIES)
+# - Separate Debug and Release:
+#   find_package  (Boost REQUIRED iostreams)
+#   import_library(Boost_INCLUDE_DIRS Boost_IOSTREAMS_LIBRARY_DEBUG Boost_IOSTREAMS_LIBRARY_RELEASE)
+# - You may also set the PROJECT_INCLUDE_DIRS and PROJECT_LIBRARIES instead of using import_library.
+
+find_package  (Boost REQUIRED)
+import_library(Boost_INCLUDE_DIRS)
+
 find_package  (Catch2 REQUIRED)
 list          (APPEND PROJECT_LIBRARIES Catch2::Catch2WithMain)
 
@@ -49,20 +66,12 @@ find_package  (imgui REQUIRED)
 list          (APPEND PROJECT_LIBRARIES imgui::imgui)
 
 find_package  (spdlog REQUIRED)
-list(APPEND PROJECT_LIBRARIES spdlog::spdlog)
+list          (APPEND PROJECT_LIBRARIES spdlog::spdlog)
 
-# ADD LIBRARIES HERE. Vcpkg toolchain file will automatically locate them.
-# Examples:
-# - Header Only:
-#   find_package  (GLM REQUIRED)
-#   import_library(GLM_INCLUDE_DIRS)
-# - Identical Debug and Release:
-#   find_package  (OpenGL REQUIRED)
-#   import_library(OPENGL_INCLUDE_DIR OPENGL_LIBRARIES)
-# - Separate Debug and Release:
-#   find_package  (Boost REQUIRED iostreams)
-#   import_library(Boost_INCLUDE_DIRS Boost_IOSTREAMS_LIBRARY_DEBUG Boost_IOSTREAMS_LIBRARY_RELEASE)
-# - You may also set the PROJECT_INCLUDE_DIRS and PROJECT_LIBRARIES instead of using import_library.
+# ADD GIT SUBMODULE DEPENDENCIES HERE.
+add_subdirectory("extern")
+list(APPEND PROJECT_LIBRARIES KTexComp)
+list(APPEND PROJECT_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/extern/KTexComp/ispc_texcomp)
 
 ##################################################    Targets     ##################################################
 add_library(${PROJECT_NAME} ${PROJECT_FILES})
@@ -111,10 +120,12 @@ if(BUILD_TESTS)
 endif()
 
 ##################################################  Installation  ##################################################
-install(TARGETS ${PROJECT_NAME} EXPORT ${PROJECT_NAME}-config
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION bin)
-install(DIRECTORY include/ DESTINATION include)
-install(EXPORT  ${PROJECT_NAME}-config DESTINATION cmake)
-export (TARGETS ${PROJECT_NAME}        FILE        ${PROJECT_NAME}-config.cmake)
+# Currently doesnt work because KTexComp, as it can't be exported right now
+
+#install(TARGETS ${PROJECT_NAME} EXPORT ${PROJECT_NAME}-config
+#  ARCHIVE DESTINATION lib
+#  LIBRARY DESTINATION lib
+#  RUNTIME DESTINATION bin)
+#install(DIRECTORY include/ DESTINATION include)
+#install(EXPORT  ${PROJECT_NAME}-config DESTINATION cmake)
+#export (TARGETS ${PROJECT_NAME}        FILE        ${PROJECT_NAME}-config.cmake)

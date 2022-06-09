@@ -5,6 +5,8 @@
 #include <filesystem>
 #include <spdlog/spdlog.h>
 
+#include <boost/signals2/signal.hpp>
+#include <GLFW/glfw3.h>
 
 void update(double dt) {
   // noop
@@ -12,13 +14,16 @@ void update(double dt) {
 
 struct update_pass : texpress::render_pass
 {
-  update_pass()
-    : MS_PER_UPDATE(16.6)           // Target: 60 FPS
+  update_pass(texpress::Dispatcher* adispatcher)
+    : dispatcher(adispatcher)
+    , MS_PER_UPDATE(16.6)           // Target: 60 FPS
     , clock(texpress::Wallclock())
     , t_curr(0.0)
     , t_prev(0.0)
     , lag(0.0)
     , buf_path("")
+    , fbuffer(0)
+    , cbuffer(0)
   {
     on_prepare = [&] ( )
     {
@@ -59,7 +64,8 @@ struct update_pass : texpress::render_pass
         if (texpress::file_exists(buf_path)) {
           spdlog::info("Uploading file...");
           auto fsize = texpress::file_size(buf_path);
-          std::vector<char> fbuffer(fsize);
+          fbuffer.clear();
+          fbuffer.resize(fsize);
           if (!texpress::file_read(buf_path, fbuffer.data(), fbuffer.size()))
             spdlog::error("File upload error!");
           else
@@ -72,15 +78,18 @@ struct update_pass : texpress::render_pass
       ImGui::InputText("Filepath", buf_path, 64);
       // --> Compress BC6H
       if (ImGui::Button("Compress to BC6H")) {
-        spdlog::info("Compress to BC6H!");
+        spdlog::info("Compressing BC6H...");
+        dispatcher->post(texpress::Event(texpress::EventType::COMPRESS_BC6H, &fbuffer, &cbuffer));
       }
       // --> Save compressed
       if (ImGui::Button("Save Compressed")) {
+        dispatcher->post(texpress::Event(texpress::EventType::COMPRESS_SAVE));
         spdlog::info("Saved compressed file!");
       }
       // --> Quit
       if (ImGui::Button("Quit")) {
         spdlog::info("Quit!");
+        dispatcher->post(texpress::Event(texpress::EventType::APP_SHUTDOWN));
       }
 
       ImGui::End();
@@ -88,8 +97,15 @@ struct update_pass : texpress::render_pass
       ImGui::ShowDemoWindow();
     };
   }
+
+  // Events
+  texpress::Dispatcher* dispatcher;
   
-  // Logic
+  // Files
+  std::vector<char> fbuffer;
+  std::vector<char> cbuffer;
+
+  // UpdateLogic
   double MS_PER_UPDATE;
   texpress::Wallclock clock;
   double t_curr;
@@ -104,13 +120,18 @@ TEST_CASE("GUI test.", "[texpress::gui]")
 {
   auto application = std::make_unique<texpress::application>();
   auto renderer    = application->add_system<texpress::renderer>();
+  auto dispatcher  = application->add_system<texpress::Dispatcher>();
+  auto compressor = application->add_system<texpress::Compressor>();
   ImGui::SetCurrentContext(application->gui());
 
   renderer->add_render_pass<texpress::render_pass>(texpress::make_clear_pass(application->window()));
   renderer->add_render_pass<texpress::render_pass>(texpress::make_prepare_pass(application->window()));
-  renderer->add_render_pass<update_pass>();
+  renderer->add_render_pass<update_pass>(dispatcher);
   renderer->add_render_pass<texpress::render_pass>(texpress::make_gui_pass(application->window()));
   renderer->add_render_pass<texpress::render_pass>(texpress::make_swap_pass (application->window()));
+
+  dispatcher->subscribe(texpress::EventType::APP_SHUTDOWN, std::bind(&texpress::application::listener, application.get(), std::placeholders::_1));
+  dispatcher->subscribe(texpress::EventType::COMPRESS_BC6H, std::bind(&texpress::Compressor::listener, compressor, std::placeholders::_1));
 
   application->run();
 

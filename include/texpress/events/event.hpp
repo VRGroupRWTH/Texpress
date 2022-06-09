@@ -3,6 +3,13 @@
 #include <string>
 
 namespace texpress {
+  enum TEXPRESS_EXPORT EventType {
+    APP_SHUTDOWN,
+    COMPRESS_BC6H,
+    COMPRESS_SAVE
+  };
+
+
   /**
   @class Event
   @brief Base class for all events
@@ -13,19 +20,14 @@ namespace texpress {
   @author https://github.com/Pseudomanifold/Events
   */
 
-  template <typename T>
-  class TEXPRESS_EXPORT Event {
-  protected:
-    T _type;
-    std::string _name;
-    bool _handled = false;
 
-  public:
-    Event() = default;
-    Event(T type, const std::string& name = "") : _type(type), _name(name) {};
+  struct TEXPRESS_EXPORT Event
+  {
+    Event() = delete;
+    explicit Event(EventType type, void* sendData = nullptr, void* receiveData = nullptr) : mType(type), mSendData(sendData), mReceiveData(receiveData) {}
 
-    inline const T type() const { return _type; };
-    inline const std::string& getName() const { return _name; };
-    virtual bool isHandled() { return _handled; };
+    EventType mType;
+    void* mSendData;
+    void* mReceiveData;
   };
 }

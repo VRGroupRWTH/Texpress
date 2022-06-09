@@ -1,6 +1,7 @@
 #pragma once
 
 #include <texpress/core/engine.hpp>
+#include <texpress/events/event.hpp>
 #include <texpress/export.hpp>
 
 typedef struct GLFWwindow GLFWwindow;
@@ -22,6 +23,8 @@ public:
   ImGuiContext* gui() const { return gui_; }
 
   void        run       ();
+  void        quit      ();
+  void        listener  (const Event& e);
 protected:
   GLFWwindow* window_ = nullptr;
   ImGuiContext* gui_ = nullptr;
