@@ -9,4 +9,5 @@ struct image
 {
   std::vector<std::uint8_t> data;
   glm::ivec2                size;
+  int                       channels;
 };

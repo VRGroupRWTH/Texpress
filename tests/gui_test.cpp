@@ -5,8 +5,8 @@
 #include <filesystem>
 #include <spdlog/spdlog.h>
 
-#include <boost/signals2/signal.hpp>
-#include <GLFW/glfw3.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
 void update(double dt) {
   // noop
@@ -24,6 +24,8 @@ struct update_pass : texpress::render_pass
     , buf_path("")
     , fbuffer(0)
     , cbuffer(0)
+    , texIn(globjects::Texture::createDefault())
+    , texOut(globjects::Texture::createDefault())
   {
     on_prepare = [&] ( )
     {
@@ -66,13 +68,40 @@ struct update_pass : texpress::render_pass
           auto fsize = texpress::file_size(buf_path);
           fbuffer.clear();
           fbuffer.resize(fsize);
+
+          int x, y, n;
+          unsigned char *data = stbi_load(buf_path, &x, &y, &n, 0);
+
+          if (!data) {
+            spdlog::error("Image upload error!");
+            return;
+          }
+
+          fsize = x * y * n;
+          imgIn.data.resize(fsize);
+          imgIn.size.x = x;
+          imgIn.size.y = y;
+          imgIn.channels = n;
+
+          std::copy(data, data + fsize, imgIn.data.data());
+          delete data;
+
+          spdlog::info("Uploaded file!");
+
+          if (imgIn.channels == 4)
+            texIn->image2D(0, gl::GL_RGBA8, imgIn.size, 0, gl::GL_RGBA, gl::GL_UNSIGNED_BYTE, imgIn.data.data());
+          if (imgIn.channels == 3)
+            texIn->image2D(0, gl::GL_RGBA8, imgIn.size, 0, gl::GL_RGB, gl::GL_UNSIGNED_BYTE, imgIn.data.data());
+
+          /*
           if (!texpress::file_read(buf_path, fbuffer.data(), fbuffer.size()))
             spdlog::error("File upload error!");
           else
             spdlog::info("Uploaded file!");
+          */
         }
         else
-          spdlog::warn("File does not exist!");
+          spdlog::warn("Image does not exist!");
       }
       ImGui::SameLine();
       ImGui::InputText("Filepath", buf_path, 64);
@@ -92,6 +121,11 @@ struct update_pass : texpress::render_pass
         dispatcher->post(texpress::Event(texpress::EventType::APP_SHUTDOWN));
       }
 
+      ImGui::Text("Input Image");
+      if (texIn) {
+        ImTextureID texID = ImTextureID(texIn->id());
+        ImGui::Image(texID, ImVec2(imgIn.size.x, imgIn.size.y), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
+      }
       ImGui::End();
       
       ImGui::ShowDemoWindow();
@@ -104,6 +138,12 @@ struct update_pass : texpress::render_pass
   // Files
   std::vector<char> fbuffer;
   std::vector<char> cbuffer;
+
+  // Debug Image
+  image imgIn;
+  image imgOut;
+  std::unique_ptr<globjects::Texture> texIn;
+  std::unique_ptr<globjects::Texture> texOut;
 
   // UpdateLogic
   double MS_PER_UPDATE;
