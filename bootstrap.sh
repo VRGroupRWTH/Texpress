@@ -8,7 +8,7 @@ if [ ! -f "vcpkg" ]; then ./bootstrap-vcpkg.sh; fi
 
 VCPKG_DEFAULT_TRIPLET=x64-linux
 # Add your library ports here. 
-vcpkg install --recurse boost-multi-array boost-signals2 catch2 glfw3 globjects stb imgui[glfw-binding,opengl3-binding] spdlog
+vcpkg install --recurse boost-multi-array boost-signals2 catch2 glfw3 globjects stb imgui[glfw-binding,opengl3-binding] spdlog fp16
 cd ..
 
 cmake -Ax64 -DCMAKE_TOOLCHAIN_FILE=./vcpkg/scripts/buildsystems/vcpkg.cmake ..

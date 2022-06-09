@@ -1,6 +1,9 @@
 #include <texpress/compression/compressor.hpp>
 #include <spdlog/spdlog.h>
 
+#include <BC.h>
+#include <fp16.h>
+
 namespace texpress {
   void Compressor::listener(const Event& e) {
     if (e.mType == EventType::COMPRESS_BC6H) {
@@ -24,6 +27,7 @@ namespace texpress {
     output.resize(input.size());
     std::copy(input.begin(), input.end(), output.data());
     spdlog::info("Compressed!");
+
     return true;
   }
 }
