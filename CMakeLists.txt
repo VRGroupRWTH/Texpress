@@ -8,6 +8,9 @@ set                   (CMAKE_CXX_VISIBILITY_PRESET hidden)
 set                   (CMAKE_VISIBILITY_INLINES_HIDDEN 1)
 set                   (EXTERNAL_INSTALL_LOCATION ${CMAKE_BINARY_DIR}/external)
 
+set (WINDOWS 1)
+set (LINUX 0)
+
 include               (set_max_warning_level)
 set_max_warning_level ()
 

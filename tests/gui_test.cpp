@@ -70,7 +70,7 @@ struct update_pass : texpress::render_pass
           fbuffer.resize(fsize);
 
           int x, y, n;
-          unsigned char *data = stbi_load(buf_path, &x, &y, &n, 0);
+          uint8_t* data = stbi_load(buf_path, &x, &y, &n, 0);
 
           if (!data) {
             spdlog::error("Image upload error!");
@@ -108,7 +108,8 @@ struct update_pass : texpress::render_pass
       // --> Compress BC6H
       if (ImGui::Button("Compress to BC6H")) {
         spdlog::info("Compressing BC6H...");
-        dispatcher->post(texpress::Event(texpress::EventType::COMPRESS_BC6H, &fbuffer, &cbuffer));
+
+        dispatcher->post(texpress::Event(texpress::EventType::COMPRESS_BC6H, &imgIn, &imgOut));
       }
       // --> Save compressed
       if (ImGui::Button("Save Compressed")) {
@@ -136,8 +137,8 @@ struct update_pass : texpress::render_pass
   texpress::Dispatcher* dispatcher;
   
   // Files
-  std::vector<char> fbuffer;
-  std::vector<char> cbuffer;
+  std::vector<uint8_t> fbuffer;
+  std::vector<uint8_t> cbuffer;
 
   // Debug Image
   image imgIn;
