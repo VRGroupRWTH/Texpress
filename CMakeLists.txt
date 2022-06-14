@@ -74,13 +74,32 @@ list          (APPEND PROJECT_LIBRARIES spdlog::spdlog)
 find_path  (FP16_INCLUDE_DIRS "fp16.h")
 import_library(FP16_INCLUDE_DIRS)
 
+find_package  (Compressonator REQUIRED)
+list          (APPEND PROJECT_LIBRARIES Compressonator::Compressonator)
+
 # ADD GIT SUBMODULE DEPENDENCIES HERE.
-add_subdirectory("extern")
-list(APPEND PROJECT_LIBRARIES KTexComp)
-list(APPEND PROJECT_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/extern/KTexComp/ispc_texcomp)
+#add_subdirectory("extern")
+#list(APPEND PROJECT_LIBRARIES KTexComp)
+#list(APPEND PROJECT_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/extern/KTexComp/ispc_texcomp)
+
+#include_external_msproject(ISPCTexComp ${CMAKE_CURRENT_SOURCE_DIR}/extern/ISPCTextureCompressor/ispc_texcomp/ispc_texcomp.vcxproj)
+#if(CMAKE_BUILD_TYPE EQUAL "Debug")
+#  list (APPEND PROJECT_LIBRARIES ${CMAKE_CURRENT_SOURCE_DIR}/extern/ISPCTextureCompressor/ispc_texcomp/x64/Debug/ispc_texcomp.dll)
+#endif()
+
+#if(CMAKE_BUILD_TYPE EQUAL "Release")
+#  list (APPEND PROJECT_LIBRARIES ${CMAKE_CURRENT_SOURCE_DIR}/extern/ISPCTextureCompressor/ispc_texcomp/x64/Release/ispc_texcomp.dll)
+#endif()
+
+#list (APPEND PROJECT_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/extern/ISPCTextureCompressor/ispc_texcomp)
+
+
 
 ##################################################    Targets     ##################################################
 add_library(${PROJECT_NAME} ${PROJECT_FILES})
+
+#add_dependencies(${PROJECT_NAME} ISPCTexComp)
+
 target_include_directories(${PROJECT_NAME} PUBLIC 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>

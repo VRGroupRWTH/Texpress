@@ -14,16 +14,16 @@ void update(double dt) {
 
 struct update_pass : texpress::render_pass
 {
-  update_pass(texpress::Dispatcher* adispatcher)
+  update_pass(texpress::Dispatcher* adispatcher, texpress::Encoder* anencoder)
     : dispatcher(adispatcher)
+    , encoder(anencoder)
     , MS_PER_UPDATE(16.6)           // Target: 60 FPS
     , clock(texpress::Wallclock())
     , t_curr(0.0)
     , t_prev(0.0)
     , lag(0.0)
     , buf_path("")
-    , fbuffer(0)
-    , cbuffer(0)
+    , imgEncoded()
     , texIn(globjects::Texture::createDefault())
     , texOut(globjects::Texture::createDefault())
   {
@@ -32,7 +32,8 @@ struct update_pass : texpress::render_pass
       t_curr = clock.timeF64(texpress::WallclockType::WALLCLK_MS);
       t_prev = clock.timeF64(texpress::WallclockType::WALLCLK_MS);
 
-      strcpy(buf_path, std::filesystem::current_path().string().c_str());
+      //strcpy(buf_path, std::filesystem::current_path().string().c_str());
+      strcpy(buf_path, (std::filesystem::current_path().string() + "\\batman.jpg").c_str());
     };
     on_update = [&] ( )
     {
@@ -62,36 +63,29 @@ struct update_pass : texpress::render_pass
       ImGui::Begin("Menu", p_open, window_flags);
       ImGui::Text("Texpress Menu");
       // --> Upload file
-      if (ImGui::Button("Upload File")) {
+      if (ImGui::Button("Upload Image")) {
         if (texpress::file_exists(buf_path)) {
-          spdlog::info("Uploading file...");
-          auto fsize = texpress::file_size(buf_path);
-          fbuffer.clear();
-          fbuffer.resize(fsize);
+          spdlog::info("Uploading image...");
 
           int x, y, n;
-          uint8_t* data = stbi_load(buf_path, &x, &y, &n, 0);
+          float* data = stbi_loadf(buf_path, &x, &y, &n, 3);
+          n = 3;
 
           if (!data) {
             spdlog::error("Image upload error!");
             return;
           }
 
-          fsize = x * y * n;
-          imgIn.data.resize(fsize);
+          imgIn.data.resize(x * y * n);
           imgIn.size.x = x;
           imgIn.size.y = y;
           imgIn.channels = n;
 
-          std::copy(data, data + fsize, imgIn.data.data());
+          std::move(data, data + x * y * n, imgIn.data.data());
           delete data;
 
-          spdlog::info("Uploaded file!");
-
-          if (imgIn.channels == 4)
-            texIn->image2D(0, gl::GL_RGBA8, imgIn.size, 0, gl::GL_RGBA, gl::GL_UNSIGNED_BYTE, imgIn.data.data());
-          if (imgIn.channels == 3)
-            texIn->image2D(0, gl::GL_RGBA8, imgIn.size, 0, gl::GL_RGB, gl::GL_UNSIGNED_BYTE, imgIn.data.data());
+          spdlog::info("Uploaded image!");
+          texIn->image2D(0, gl::GL_RGB32F, imgIn.size, 0, gl::GL_RGB, gl::GL_FLOAT, imgIn.data.data());
 
           /*
           if (!texpress::file_read(buf_path, fbuffer.data(), fbuffer.size()))
@@ -107,9 +101,16 @@ struct update_pass : texpress::render_pass
       ImGui::InputText("Filepath", buf_path, 64);
       // --> Compress BC6H
       if (ImGui::Button("Compress to BC6H")) {
-        spdlog::info("Compressing BC6H...");
+        if (imgIn.data.empty()) {
+          spdlog::warn("Image does not exist!");
+        }
+        else {
+          spdlog::info("Compressing BC6H...");
+          imgEncoded = encoder->compress_bc6h(imgIn);
+          spdlog::info("Compressed!");
 
-        dispatcher->post(texpress::Event(texpress::EventType::COMPRESS_BC6H, &imgIn, &imgOut));
+          texOut->image2D(0, gl::GL_RGB16F, imgEncoded.data_size, 0, gl::GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT, gl::GL_FLOAT, imgEncoded.data.data());
+        }
       }
       // --> Save compressed
       if (ImGui::Button("Save Compressed")) {
@@ -127,22 +128,27 @@ struct update_pass : texpress::render_pass
         ImTextureID texID = ImTextureID(texIn->id());
         ImGui::Image(texID, ImVec2(imgIn.size.x, imgIn.size.y), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
       }
+
+      ImGui::Text("Output Image");
+      if (texOut) {
+        ImTextureID texID = ImTextureID(texOut->id());
+        ImGui::Image(texID, ImVec2(imgIn.size.x, imgIn.size.y), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
+      }
       ImGui::End();
       
       ImGui::ShowDemoWindow();
     };
   }
 
-  // Events
+  // Systems
   texpress::Dispatcher* dispatcher;
+  texpress::Encoder* encoder;
   
   // Files
-  std::vector<uint8_t> fbuffer;
-  std::vector<uint8_t> cbuffer;
+  texpress::BlockCompressed imgEncoded;
 
   // Debug Image
-  image imgIn;
-  image imgOut;
+  hdr_image imgIn;
   std::unique_ptr<globjects::Texture> texIn;
   std::unique_ptr<globjects::Texture> texOut;
 
@@ -162,17 +168,17 @@ TEST_CASE("GUI test.", "[texpress::gui]")
   auto application = std::make_unique<texpress::application>();
   auto renderer    = application->add_system<texpress::renderer>();
   auto dispatcher  = application->add_system<texpress::Dispatcher>();
-  auto compressor = application->add_system<texpress::Compressor>();
+  auto encoder = application->add_system<texpress::Encoder>();
   ImGui::SetCurrentContext(application->gui());
 
   renderer->add_render_pass<texpress::render_pass>(texpress::make_clear_pass(application->window()));
   renderer->add_render_pass<texpress::render_pass>(texpress::make_prepare_pass(application->window()));
-  renderer->add_render_pass<update_pass>(dispatcher);
+  renderer->add_render_pass<update_pass>(dispatcher, encoder);
   renderer->add_render_pass<texpress::render_pass>(texpress::make_gui_pass(application->window()));
   renderer->add_render_pass<texpress::render_pass>(texpress::make_swap_pass (application->window()));
 
   dispatcher->subscribe(texpress::EventType::APP_SHUTDOWN, std::bind(&texpress::application::listener, application.get(), std::placeholders::_1));
-  dispatcher->subscribe(texpress::EventType::COMPRESS_BC6H, std::bind(&texpress::Compressor::listener, compressor, std::placeholders::_1));
+  dispatcher->subscribe(texpress::EventType::COMPRESS_BC6H, std::bind(&texpress::Encoder::listener, encoder, std::placeholders::_1));
 
   application->run();
 

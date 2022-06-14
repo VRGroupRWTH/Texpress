@@ -28,6 +28,8 @@ namespace texpress
     case WallclockType::WALLCLK_NS:
       return t_s * NS;
     }
+
+    return 0;
   }
 
   uint64_t Wallclock::timeU64(WallclockType type)
@@ -45,6 +47,8 @@ namespace texpress
     case WallclockType::WALLCLK_NS:
       return t_s * NS;
     }
+
+    return 0;
   }
 #else TEXPRESS_GLFW_TIMER
   typedef std::chrono::high_resolution_clock Time;

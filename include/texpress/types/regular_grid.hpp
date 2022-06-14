@@ -64,4 +64,16 @@ struct regular_grid
   domain_type    size    {};
   domain_type    spacing {};
 };
+
+typedef regular_grid<float, 2> fgrid2;
+typedef regular_grid<float, 3> fgrid3;
+typedef regular_grid<float, 4> fgrid4;
+
+typedef regular_grid<double, 2> dgrid2;
+typedef regular_grid<double, 3> dgrid3;
+typedef regular_grid<double, 4> dgrid4;
+
+typedef fgrid2 grid2;
+typedef fgrid3 grid3;
+typedef fgrid4 grid4;
 }
