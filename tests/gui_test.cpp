@@ -67,9 +67,10 @@ struct update_pass : texpress::render_pass
         if (texpress::file_exists(buf_path)) {
           spdlog::info("Uploading image...");
 
+          int request = 4;
           int x, y, n;
-          float* data = stbi_loadf(buf_path, &x, &y, &n, 3);
-          n = 3;
+          float* data = stbi_loadf(buf_path, &x, &y, &n, request);
+          n = request;
 
           if (!data) {
             spdlog::error("Image upload error!");
@@ -85,7 +86,7 @@ struct update_pass : texpress::render_pass
           delete data;
 
           spdlog::info("Uploaded image!");
-          texIn->image2D(0, gl::GL_RGB32F, imgIn.size, 0, gl::GL_RGB, gl::GL_FLOAT, imgIn.data.data());
+          texIn->image2D(0, gl::GL_RGBA32F, imgIn.size, 0, gl::GL_RGBA, gl::GL_FLOAT, imgIn.data.data());
 
           /*
           if (!texpress::file_read(buf_path, fbuffer.data(), fbuffer.size()))
@@ -109,7 +110,7 @@ struct update_pass : texpress::render_pass
           imgEncoded = encoder->compress_bc6h(imgIn);
           spdlog::info("Compressed!");
 
-          texOut->image2D(0, gl::GL_RGB16F, imgEncoded.data_size, 0, gl::GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT, gl::GL_FLOAT, imgEncoded.data.data());
+          texOut->compressedImage2D(0, gl::GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT, glm::ivec2(imgEncoded.grid_size), 0, imgEncoded.data_size, imgEncoded.data_ptr.data());
         }
       }
       // --> Save compressed
@@ -132,11 +133,11 @@ struct update_pass : texpress::render_pass
       ImGui::Text("Output Image");
       if (texOut) {
         ImTextureID texID = ImTextureID(texOut->id());
-        ImGui::Image(texID, ImVec2(imgIn.size.x, imgIn.size.y), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
+        ImGui::Image(texID, ImVec2(imgEncoded.grid_size.x, imgEncoded.grid_size.y), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
       }
       ImGui::End();
       
-      ImGui::ShowDemoWindow();
+      //ImGui::ShowDemoWindow();
     };
   }
 

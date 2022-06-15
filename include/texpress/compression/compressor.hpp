@@ -26,11 +26,12 @@ namespace texpress
   };
 
   struct BlockCompressed {
-    std::vector<uint8_t> data;
-    glm::ivec4 data_size;
-    DataType data_type;
-    glm::ivec4 blocks;
-    glm::ivec3 block_size;
+    std::vector<uint8_t> data_ptr;
+    uint64_t data_size;
+    glm::ivec4 grid_size;
+    DataType grid_type;
+    glm::ivec4 enc_blocks;
+    glm::ivec3 enc_blocksize;
     CompressionFormat compression_format;
   };
 
@@ -91,17 +92,17 @@ namespace texpress
     }
 
     template <typename T>
-    std::vector<uint16_t> convert_to_f16(uint64_t size_bytes, uint64_t offset_bytes, const T* input) {
+    void convert_to_f16(uint64_t size_bytes, uint64_t offset_bytes, const T* input, uint16_t* output) {
       uint64_t elements = size_bytes / sizeof(T);
       uint64_t skip_elements = offset_bytes / sizeof(T);
       uint64_t proc_elements = elements - skip_elements;
 
-      std::vector<uint16_t> f16(proc_elements);
+      // Delete any allocated data and reallocate
+      delete[] output;
+      output = new uint16_t[proc_elements];
       for (uint64_t i = 0; i < proc_elements; i++) {
-        f16[i] = fp16_ieee_from_fp32_value(static_cast<float>(*(input + skip_elements + i)));
+        output[i] = fp16_ieee_from_fp32_value(static_cast<float>(*(input + skip_elements + i)));
       }
-
-      return f16;
     }
 
     template <typename T>
@@ -119,14 +120,16 @@ namespace texpress
     }
 
     template <typename T>
-    std::vector<T> convert_from_f16(uint64_t size_bytes, uint64_t offset_bytes, const uint16_t* input) {
+    void convert_from_f16(uint64_t size_bytes, uint64_t offset_bytes, const uint16_t* input, T* output) {
       uint64_t elements = size_bytes / sizeof(uint16_t);
       uint64_t skip_elements = offset_bytes / sizeof(uint16_t);
       uint64_t proc_elements = elements - skip_elements;
 
-      std::vector<uint16_t> values(proc_elements);
+      // Delete any allocated data and reallocate
+      delete[] output;
+      output = new T[proc_elements];
       for (uint64_t i = 0; i < proc_elements; i++) {
-        values[i] = fp16_ieee_to_fp32_value(*(input + skip_elements + i));
+        output[i] = fp16_ieee_to_fp32_value(*(input + skip_elements + i));
       }
 
       return values;

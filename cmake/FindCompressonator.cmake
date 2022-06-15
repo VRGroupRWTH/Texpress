@@ -7,6 +7,7 @@
 #
 # Set ${Compressonator_ADDITIONAL_VERSIONS} in root CMakeLists.txt to include more versions
 # Set ${Compressonator_LOCATION} in root CMakeLists.txt to directly specify installation directory
+# Set ${Compressonator_SHARED} in root CMakeLists.txt to load dynamic library
 # or just a prefix location.
 
 include(FindPackageHandleStandardArgs)
@@ -34,6 +35,12 @@ list(APPEND Compressonator_VERSIONED_LIBRARY_HINTS "${Compressonator_LOCATION}/l
 
 # Check for Windows Platform
 if (${WIN32})
+  if (${Compressonator_SHARED})
+    set(Compressonator_LIBRARY_NAME Compressonator_MD)
+  else()
+    set(Compressonator_LIBRARY_NAME Compressonator_MT)
+  endif()
+
   # Glue together version specific library locations
   foreach(item IN LISTS _Compressonator_KNOWN_VERSIONS)
     list(APPEND Compressonator_VERSIONED_INCLUDE_HINTS "C:/Compressonator_${item}/include")
@@ -59,10 +66,7 @@ if (${WIN32})
 
   find_library(Compressonator_LIBRARY_RELEASE
       NAMES
-        # Dynamic
-        #Compressonator_MD
-        # Static
-        Compressonator_MT
+        ${Compressonator_LIBRARY_NAME}
       HINTS
         ${PROJECT_BINARY_DIR}/prebuilt/
         ${Compressonator_VERSIONED_LIBRARY_HINTS}
@@ -71,10 +75,7 @@ if (${WIN32})
 
   find_library(Compressonator_LIBRARY_DEBUG
     NAMES
-      # Dynamic Debug
-      #Compressonator_MDd
-      # Static Debug
-      Compressonator_MTd
+      "${Compressonator_LIBRARY_NAME}d"
     HINTS
       ${PROJECT_BINARY_DIR}/prebuilt/
       ${Compressonator_VERSIONED_LIBRARY_HINTS}
@@ -92,6 +93,12 @@ endif()
 # Check for Linux Platform
 # WARNING: Not tested
 if(${LINUX})
+  if (${Compressonator_SHARED})
+    set(Compressonator_LIBRARY_NAME Compressonator)
+  else()
+    set(Compressonator_LIBRARY_NAME Compressonator)
+  endif()
+
   # Glue together version specific library locations
   foreach(item IN LISTS _Compressonator_KNOWN_VERSIONS)
     list(APPEND Compressonator_VERSIONED_INCLUDE_HINTS "${INCLUDEDIR}/Compressonator_${item}/include")
@@ -115,15 +122,13 @@ if(${LINUX})
 
   find_library(Compressonator_LIBRARY_RELEASE
       NAMES
-        # DLL/Static?
-        Compressonator
+        ${Compressonator_LIBRARY_NAME}
       HINTS ${PROJECT_BINARY_DIR}/prebuilt/ ${Compressonator_VERSIONED_LIBRARY_HINTS}
       PATH_SUFFIXES ${LIBRARY_SUFFIXES})
 
   find_library(Compressonator_LIBRARY_DEBUG
       NAMES
-        # DLL/Static?
-        Compressonatord
+        "${Compressonator_LIBRARY_NAME}d"
       HINTS ${PROJECT_BINARY_DIR}/prebuilt/ ${Compressonator_VERSIONED_LIBRARY_HINTS}
       PATH_SUFFIXES ${LIBRARY_SUFFIXES})
 endif()
@@ -141,7 +146,12 @@ set(Compressonator_INCLUDE_DIRS ${Compressonator_INCLUDE_DIR})
 
 # Create target
 if(COMPRESSONATOR_FOUND AND NOT TARGET Compressonator::Compressonator)
-  add_library(Compressonator::Compressonator STATIC IMPORTED)
+  if (${Compressonator_SHARED})
+    add_library(Compressonator::Compressonator SHARED IMPORTED)
+  else()
+    add_library(Compressonator::Compressonator STATIC IMPORTED)
+  endif()
+  
   set_target_properties(
     Compressonator::Compressonator
     PROPERTIES
