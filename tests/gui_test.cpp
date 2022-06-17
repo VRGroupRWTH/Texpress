@@ -33,7 +33,7 @@ struct update_pass : texpress::render_pass
       t_prev = clock.timeF64(texpress::WallclockType::WALLCLK_MS);
 
       //strcpy(buf_path, std::filesystem::current_path().string().c_str());
-      strcpy(buf_path, (std::filesystem::current_path().string() + "\\batman.jpg").c_str());
+      strcpy(buf_path, (std::filesystem::current_path().string() + "\\vr.jpg").c_str());
     };
     on_update = [&] ( )
     {
@@ -67,23 +67,18 @@ struct update_pass : texpress::render_pass
         if (texpress::file_exists(buf_path)) {
           spdlog::info("Uploading image...");
 
-          int request = 4;
           int x, y, n;
-          float* data = stbi_loadf(buf_path, &x, &y, &n, request);
-          n = request;
+          int c = 4;
+          float* image_data = stbi_loadf(buf_path, &x, &y, &n, c);
+          if (c == 0)
+            c = n;
 
-          if (!data) {
-            spdlog::error("Image upload error!");
-            return;
-          }
+          imgIn.size = glm::ivec2(x, y);
+          imgIn.channels = c;
+          imgIn.data.assign(image_data, image_data + x * y * c);
+          stbi_image_free(image_data);
 
-          imgIn.data.resize(x * y * n);
-          imgIn.size.x = x;
-          imgIn.size.y = y;
-          imgIn.channels = n;
-
-          std::move(data, data + x * y * n, imgIn.data.data());
-          delete data;
+          imgIn = texpress::fit_blocksize(glm::ivec2(4, 4), imgIn);
 
           spdlog::info("Uploaded image!");
           texIn->image2D(0, gl::GL_RGBA32F, imgIn.size, 0, gl::GL_RGBA, gl::GL_FLOAT, imgIn.data.data());
@@ -110,7 +105,7 @@ struct update_pass : texpress::render_pass
           imgEncoded = encoder->compress_bc6h(imgIn);
           spdlog::info("Compressed!");
 
-          texOut->compressedImage2D(0, gl::GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT, glm::ivec2(imgEncoded.grid_size), 0, imgEncoded.data_size, imgEncoded.data_ptr.data());
+          texOut->compressedImage2D(0, gl::GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT, glm::ivec2(imgEncoded.grid_size), 0, imgEncoded.data_size, imgEncoded.data_ptr.data());
         }
       }
       // --> Save compressed

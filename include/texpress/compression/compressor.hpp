@@ -12,20 +12,20 @@
 
 namespace texpress
 {
-  enum CompressionFormat {
+  enum TEXPRESS_EXPORT CompressionFormat {
     BC6H,
     BC7,
     ASTC
   };
 
-  enum DataType {
+  enum TEXPRESS_EXPORT DataType {
     UINT8,
     INT8,
     UFLOAT32,
     FLOAT32
   };
 
-  struct BlockCompressed {
+  struct TEXPRESS_EXPORT BlockCompressed {
     std::vector<uint8_t> data_ptr;
     uint64_t data_size;
     glm::ivec4 grid_size;
@@ -34,6 +34,10 @@ namespace texpress
     glm::ivec3 enc_blocksize;
     CompressionFormat compression_format;
   };
+
+  ldr_image TEXPRESS_EXPORT fit_blocksize(glm::ivec2 blocksize, const ldr_image& input);
+  hdr_image TEXPRESS_EXPORT fit_blocksize(glm::ivec2 blocksize, const hdr_image& input);
+
 
   class TEXPRESS_EXPORT Encoder : public system
   {
@@ -52,29 +56,24 @@ namespace texpress
     static bool initialized;
 
   public:
-    BlockCompressed compress_bc6h(const glm::ivec3& size, uint64_t bytes, uint64_t offset, const uint16_t* input);
+    BlockCompressed compress_bc6h(const glm::ivec4& size, uint64_t bytes, uint64_t offset, const uint8_t* input);
     BlockCompressed compress_bc6h(const hdr_image& input);
+    BlockCompressed compress_bc6h(const ldr_image& input);
     BlockCompressed compress_bc6h(const grid2& input);
     BlockCompressed compress_bc6h(const grid3& input);
     BlockCompressed compress_bc6h(const grid4& input);
 
-    /*
-    std::vector<uint8_t> compress_astc(const glm::ivec3& size, uint64_t bytes, uint64_t offset, const uint16_t* input);
-    std::vector<uint8_t> compress_astc(const hdr_image& input);
-    std::vector<uint8_t> compress_astc(const grid2& input);
-    std::vector<uint8_t> compress_astc(const grid3& input);
-    std::vector<uint8_t> compress_astc(const grid4& input);
-    */
+    BlockCompressed compress_bc7(const glm::ivec4& size, uint64_t bytes, uint64_t offset, const uint8_t* input);
+    BlockCompressed compress_bc7(const hdr_image& input);
+    BlockCompressed compress_bc7(const ldr_image& input);
+    BlockCompressed compress_bc7(const grid2& input);
+    BlockCompressed compress_bc7(const grid3& input);
+    BlockCompressed compress_bc7(const grid4& input);
 
-    /*
-    std::vector<uint8_t> compress_bc7(const glm::ivec3& size, uint64_t bytes, uint64_t offset, const uint8_t* input);
-    std::vector<uint8_t> compress_bc7(const ldr_image& input);
-    std::vector<uint8_t> compress_bc7(const grid2& input);
-    std::vector<uint8_t> compress_bc7(const grid3& input);
-    std::vector<uint8_t> compress_bc7(const grid4& input);
-    */
+  private:
+    void compress_bc7_blocks(const glm::ivec4 size, const uint8_t* input_ptr, uint8_t* output_ptr);
 
-    hdr_image canonical_shape(CompressionFormat format, const hdr_image& input);
+  public:
 
     template <typename T>
     std::vector<uint16_t> convert_to_f16(uint64_t offset, const std::vector<T>& input) {

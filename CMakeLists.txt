@@ -86,6 +86,9 @@ set (Compressonator_SHARED TRUE)
 find_package  (Compressonator REQUIRED)
 list          (APPEND PROJECT_LIBRARIES Compressonator::Compressonator)
 
+find_package  (ktx REQUIRED)
+list          (APPEND PROJECT_LIBRARIES KTX::ktx)
+
 ##################################################    Targets     ##################################################
 add_library(${PROJECT_NAME} ${PROJECT_FILES})
 
