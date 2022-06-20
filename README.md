@@ -5,6 +5,7 @@ Texture Compressor
 - CMake 3.15+
 - Git 2.24+
 - GCC 9+ or Visual Studio 2022+
+- See build scripts
 
 ## Building:
 - Clone the repository.
