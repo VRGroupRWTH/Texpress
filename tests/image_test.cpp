@@ -21,6 +21,7 @@ struct rendering_pass : texpress::render_pass
     , indices{ }
     , coordinates{ }
     , image_in{ }
+    , imagef_in{ }
     , image_out{ }
     , vertex_buffer(globjects::Buffer::create())
     , color_buffer(globjects::Buffer::create())
@@ -88,20 +89,38 @@ struct rendering_pass : texpress::render_pass
       indices[4] = 3;
       indices[5] = 0;
 
-      int x, y, n;
-      int c = 4;
-      uint8_t* image_data = stbi_load("../files/vr.jpg", &x, &y, &n, c);
-      if (c == 0)
-        c = n;
+      if (bc6h) {
+        int x, y, n;
+        int c = 4;
+        float* image_data = stbi_loadf("../files/vr.jpg", &x, &y, &n, c);
+        if (c == 0)
+          c = n;
 
-      image_in.size = glm::ivec2(x, y);
-      image_in.channels = c;
-      image_in.data.assign(image_data, image_data + x * y * c);
-      stbi_image_free(image_data);
+        imagef_in.size = glm::ivec2(x, y);
+        imagef_in.channels = c;
+        imagef_in.data.assign(image_data, image_data + x * y * c);
+        stbi_image_free(image_data);
 
-      image_in = texpress::fit_blocksize(glm::ivec2(4, 4), image_in);
+        imagef_in = texpress::fit_blocksize(glm::ivec2(4, 4), imagef_in);
 
-      image_out = encoder->compress_bc7(image_in);
+        image_out = encoder->compress_bc6h(imagef_in);
+      }
+      else {
+        int x, y, n;
+        int c = 4;
+        uint8_t* image_data = stbi_load("../files/vr.jpg", &x, &y, &n, c);
+        if (c == 0)
+          c = n;
+
+        image_in.size = glm::ivec2(x, y);
+        image_in.channels = c;
+        image_in.data.assign(image_data, image_data + x * y * c);
+        stbi_image_free(image_data);
+
+        image_in = texpress::fit_blocksize(glm::ivec2(4, 4), image_in);
+
+        //image_out = encoder->compress_bc7(image_in);
+      }
 
       /*
       // Save the results
@@ -207,12 +226,17 @@ struct rendering_pass : texpress::render_pass
       if (show_tex_1)
       {
         texture_in->bindActive(0);
-        texture_in->image2D(0, gl::GL_RGBA8, image_in.size, 0, gl::GL_RGBA, gl::GL_UNSIGNED_BYTE, image_in.data.data());
+        if (bc6h) {
+          texture_in->image2D(0, gl::GL_RGBA32F, imagef_in.size, 0, gl::GL_RGBA, gl::GL_FLOAT, imagef_in.data.data());
+        }
+        else {
+          texture_in->image2D(0, gl::GL_RGBA8, image_in.size, 0, gl::GL_RGBA, gl::GL_UNSIGNED_BYTE, image_in.data.data());
+        }
       }
       else
       {
         texture_out->bindActive(0);
-        texture_out->compressedImage2D(0, gl::GL_COMPRESSED_RGBA_BPTC_UNORM, glm::ivec2(image_out.grid_size), 0, image_out.data_size, image_out.data_ptr.data());
+        texture_out->compressedImage2D(0, image_out.enc_glformat, glm::ivec2(image_out.grid_size), 0, image_out.data_size, image_out.data_ptr.data());
       }
 
       index_buffer->bind(gl::GLenum::GL_ELEMENT_ARRAY_BUFFER);
@@ -256,9 +280,11 @@ void main()
 }
 )";
 
+  bool bc6h = true;
   bool show_tex_1 = true;
 
   ldr_image image_in;
+  hdr_image imagef_in;
   texpress::BlockCompressed image_out;
 
   texpress::Encoder* encoder;
@@ -287,7 +313,7 @@ void main()
   std::unique_ptr<globjects::Program>              program;
 };
 
-TEST_CASE("CLI test.", "[texpress::cli]")
+TEST_CASE("Image test.", "[texpress::cli]")
 {
   auto application = std::make_unique<texpress::application>();
   auto renderer = application->add_system<texpress::renderer>();

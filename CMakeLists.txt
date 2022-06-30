@@ -89,6 +89,10 @@ list          (APPEND PROJECT_LIBRARIES Compressonator::Compressonator)
 find_package  (ktx REQUIRED)
 list          (APPEND PROJECT_LIBRARIES KTX::ktx)
 
+find_package  (HighFive REQUIRED)
+list          (APPEND PROJECT_LIBRARIES HighFive)
+
+
 ##################################################    Targets     ##################################################
 add_library(${PROJECT_NAME} ${PROJECT_FILES})
 

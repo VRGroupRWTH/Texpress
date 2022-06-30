@@ -7,32 +7,35 @@
 #include <texpress/types/bc_data.hpp>
 #include <texpress/types/regular_grid.hpp>
 
+#include <glbinding/gl45core/enum.h>
+#include <texpress/compression/compressor_defines.hpp>
 #include <glm/vec3.hpp>
 #include <fp16.h>
 
 namespace texpress
 {
-  enum TEXPRESS_EXPORT CompressionFormat {
-    BC6H,
-    BC7,
-    ASTC
-  };
-
-  enum TEXPRESS_EXPORT DataType {
-    UINT8,
-    INT8,
-    UFLOAT32,
-    FLOAT32
-  };
-
   struct TEXPRESS_EXPORT BlockCompressed {
-    std::vector<uint8_t> data_ptr;
-    uint64_t data_size;
-    glm::ivec4 grid_size;
-    DataType grid_type;
-    glm::ivec4 enc_blocks;
-    glm::ivec3 enc_blocksize;
-    CompressionFormat compression_format;
+    std::vector<uint8_t> data_ptr;    // databuffer
+    uint64_t data_size;               // size of databuffer (redundant)
+    glm::ivec4 grid_size;             // extents of each grid dimension
+    gl::GLenum grid_glType;           // data type (unsigned int, float, ...) as glenum
+    glm::ivec4 enc_blocks;            // number of blocks in each dimension
+    glm::ivec3 enc_blocksize;         // extents of block dimensions
+    gl::GLenum enc_glformat;          // compression format as glenum
+  };
+
+  struct TEXPRESS_EXPORT BC6H_options {
+    float quality = 0.05;       // ignored for BC6H?
+    uint8_t threads = 0;
+    bool signed_data = true;
+  };
+
+  struct TEXPRESS_EXPORT BC7_options {
+    float quality = 0.05;
+    uint8_t threads = 0;
+    bool restrictColor = false;
+    bool restrictAlpha = false;
+    uint8_t modeMask = 0xFF;
   };
 
   ldr_image TEXPRESS_EXPORT fit_blocksize(glm::ivec2 blocksize, const ldr_image& input);
@@ -42,7 +45,7 @@ namespace texpress
   class TEXPRESS_EXPORT Encoder : public system
   {
   public:
-    Encoder();
+    Encoder() = default;
     Encoder(const Encoder& that) = delete;
     Encoder(Encoder&& temp) = delete;
     ~Encoder() = default;
@@ -52,24 +55,23 @@ namespace texpress
   public:
     void listener(const Event& e);
 
-  private:
-    static bool initialized;
-
   public:
-    BlockCompressed compress_bc6h(const glm::ivec4& size, uint64_t bytes, uint64_t offset, const uint8_t* input);
-    BlockCompressed compress_bc6h(const hdr_image& input);
-    BlockCompressed compress_bc6h(const ldr_image& input);
-    BlockCompressed compress_bc6h(const grid2& input);
-    BlockCompressed compress_bc6h(const grid3& input);
-    BlockCompressed compress_bc6h(const grid4& input);
+    BlockCompressed compress_bc6h(const BC6H_options& options, const glm::ivec4& size, uint64_t bytes, uint64_t offset, const uint8_t* input);
+    BlockCompressed compress_bc6h(const hdr_image& input, const BC6H_options& options = {});
+    BlockCompressed compress_bc6h(const ldr_image& input, const BC6H_options& options);
+    BlockCompressed compress_bc6h(const grid2& input, const BC6H_options& options);
+    BlockCompressed compress_bc6h(const grid3& input, const BC6H_options& options);
+    BlockCompressed compress_bc6h(const grid4& input, const BC6H_options& options);
 
-    BlockCompressed compress_bc7(const glm::ivec4& size, uint64_t bytes, uint64_t offset, const uint8_t* input);
-    BlockCompressed compress_bc7(const hdr_image& input);
-    BlockCompressed compress_bc7(const ldr_image& input);
-    BlockCompressed compress_bc7(const grid2& input);
-    BlockCompressed compress_bc7(const grid3& input);
-    BlockCompressed compress_bc7(const grid4& input);
+    BlockCompressed compress_bc7(const BC7_options& options, const glm::ivec4& size, uint64_t bytes, uint64_t offset, const uint8_t* input);
+    BlockCompressed compress_bc7(const hdr_image& input, const BC7_options& options);
+    BlockCompressed compress_bc7(const ldr_image& input, const BC7_options& options);
+    BlockCompressed compress_bc7(const grid2& input, const BC7_options& options);
+    BlockCompressed compress_bc7(const grid3& input, const BC7_options& options);
+    BlockCompressed compress_bc7(const grid4& input, const BC7_options& options);
 
+    BlockCompressed compress_bc6h_legacy(const hdr_image& input);
+    BlockCompressed compress_bc7_legacy(const ldr_image& input);
   private:
     void compress_bc7_blocks(const glm::ivec4 size, const uint8_t* input_ptr, uint8_t* output_ptr);
 
