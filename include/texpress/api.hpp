@@ -15,6 +15,7 @@
 #include <texpress/compression/compressor.hpp>
 #include <texpress/io/file_io.hpp>
 #include <texpress/io/image_io.hpp>
+#include <texpress/io/hdf_io.hpp>
 #include <texpress/io/regular_grid_io.hpp>
 #include <texpress/types/image.hpp>
 #include <texpress/types/regular_grid.hpp>

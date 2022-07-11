@@ -9,12 +9,41 @@
 
 namespace texpress
 {
+  struct TEXPRESS_EXPORT HDF5Node {
+    std::string name;
+    HighFive::ObjectType type;
+    HDF5Node* parent;
+    std::vector<HDF5Node*> children;
 
+    std::string get_path();
+    std::string get_string_type();
 
+    bool is_group() {
+      return HighFive::ObjectType::Group == type;
+    }
+  };
 
+  struct TEXPRESS_EXPORT HDF5Tree {
+    HDF5Node* root;
 
+    HDF5Tree() :
+      root(nullptr)
+    {}
 
+    bool empty();
 
+    bool insert(std::string path, HighFive::ObjectType h5type);
+    std::vector<std::string> list_paths();
+    std::vector<HDF5Node*> list_nodes();
+    std::vector<HDF5Node*> filter_nodes(HighFive::ObjectType type);
+    bool parse(std::string file_path);
+
+  private:
+    void list_paths(HDF5Node* node, std::vector<std::string>& paths);
+    void list_nodes(HDF5Node* node, std::vector<HDF5Node*>& nodes);
+    void filter_nodes(HighFive::ObjectType type, HDF5Node* node, std::vector<HDF5Node*>& nodes);
+    bool parse(HighFive::File& file, std::string internal_path);
+  };
 
   typedef struct hdf5_handler hdf5_handler;
 

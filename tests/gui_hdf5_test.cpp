@@ -25,6 +25,7 @@ struct update_pass : texpress::render_pass
     , buf_path("")
     , texIn(globjects::Texture::createDefault())
     , texOut(globjects::Texture::createDefault())
+    , hdf5_file(nullptr)
   {
     on_prepare = [&] ( )
     {
@@ -32,7 +33,7 @@ struct update_pass : texpress::render_pass
       t_prev = clock.timeF64(texpress::WallclockType::WALLCLK_MS);
 
       //strcpy(buf_path, std::filesystem::current_path().string().c_str());
-      strcpy(buf_path, (std::filesystem::current_path().string() + "\\..\\files\\ctbl3d.nc").c_str());
+      strcpy(buf_path, (std::filesystem::current_path().string() + "\\..\\files\\Test.HDF5").c_str());
     };
     on_update = [&] ( )
     {
@@ -62,22 +63,57 @@ struct update_pass : texpress::render_pass
       ImGui::Begin("Menu", p_open, window_flags);
       ImGui::Text("Texpress Menu");
 
-      // --> Upload file
-      if (ImGui::Button("Upload File")) {
-        if (texpress::file_exists(buf_path)) {
-          spdlog::info("Uploading hdf5 file...");
+      // Left menu side
+      {
+        ImGuiWindowFlags window_flags = ImGuiWindowFlags_HorizontalScrollbar;
+        window_flags |= ImGuiWindowFlags_NoScrollWithMouse;
+        //ImGui::BeginChild("ChildL", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 260), false, window_flags);
+        ImGui::BeginChild("ChildL", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0), false, window_flags);
+        if (ImGui::Button("Upload HDF5")) {
+          try {
+            hdf5_file = new HighFive::File(buf_path, HighFive::File::ReadOnly);
+            hdf5_structure.parse(buf_path);
+          }
+          catch (...)
+          {
+            spdlog::error("Could not load file " + std::string(buf_path));
+          }
         }
-        else
-          spdlog::warn("Image does not exist!");
+        ImGui::SameLine();
+        ImGui::InputText("Filepath", buf_path, 64);
+        ImGui::Button("Quit");
+        ImGui::EndChild();
       }
+
       ImGui::SameLine();
-      ImGui::InputText("Filepath", buf_path, 64);
-      ImGui::SameLine();
-      ImGui::BeginGroup();
-      ImGui::Button("Test");
-      ImGui::Button("Test");
-      ImGui::Button("Test");
-      ImGui::EndGroup();
+
+      // Right menu side
+      {
+        ImGuiWindowFlags window_flags = ImGuiWindowFlags_HorizontalScrollbar;
+        window_flags |= ImGuiWindowFlags_NoScrollWithMouse;
+        ImGui::BeginChild("ChildR", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0), false, window_flags);
+        if (!hdf5_structure.empty()) {
+          auto node = hdf5_structure.root;
+
+          if (ImGui::TreeNode("HDF5 File")) {
+            for (const auto* group : groups) {
+              if (ImGui::TreeNode(group->name.c_str())) {
+                for (const auto* child : group->children) {
+                  if (ImGui::TreeNode(group->name.c_str())) {
+
+                    ImGui::TreePop();
+                  }
+                }
+                ImGui::TreePop();
+              }
+            }
+            
+            ImGui::TreePop();
+          }
+
+        }
+        ImGui::EndChild();
+      }
 
       // --> Quit
       if (ImGui::Button("Quit")) {
@@ -93,7 +129,10 @@ struct update_pass : texpress::render_pass
   // Systems
   texpress::Dispatcher* dispatcher;
   texpress::Encoder* encoder;
-  
+
+  // Data buffers
+  HighFive::File* hdf5_file;
+  texpress::HDF5Tree hdf5_structure;
   std::unique_ptr<globjects::Texture> texIn;
   std::unique_ptr<globjects::Texture> texOut;
 
