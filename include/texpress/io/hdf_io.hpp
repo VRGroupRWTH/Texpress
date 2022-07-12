@@ -18,9 +18,8 @@ namespace texpress
     std::string get_path();
     std::string get_string_type();
 
-    bool is_group() {
-      return HighFive::ObjectType::Group == type;
-    }
+    bool is_group() const { return HighFive::ObjectType::Group == type; }
+    bool is_dataset() const { return HighFive::ObjectType::Dataset == type; }
   };
 
   struct TEXPRESS_EXPORT HDF5Tree {

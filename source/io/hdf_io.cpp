@@ -157,7 +157,6 @@ namespace texpress
     }
 
     bool HDF5Tree::parse(HighFive::File& file, std::string internal_path) {
-
       bool parsing = true;
       bool ok = true;
       auto group = file.getGroup(internal_path);

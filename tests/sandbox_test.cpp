@@ -4,6 +4,7 @@
 #include <iostream>
 #include <filesystem>
 #include <spdlog/spdlog.h>
+#include <texpress/api.hpp>
 
 TEST_CASE("Sandbox testing.", "[texpress::sandbox]")
 {
@@ -13,11 +14,10 @@ TEST_CASE("Sandbox testing.", "[texpress::sandbox]")
   auto h5struct = texpress::HDF5Tree();
   h5struct.parse(filepath);
   
-  auto groups = h5struct.list_paths();
   auto nodes = h5struct.list_nodes();
 
-  for (const auto& group : groups) {
-    spdlog::info(group);
+  for (const auto& node : nodes) {
+    spdlog::info(node->get_path());
   }
 
   /*
