@@ -143,9 +143,9 @@ namespace texpress {
     return input;
   }
 
-  BlockCompressed Encoder::compress_bc6h(const hdr_image& input, const BC6H_options& options) {
+  Texture<uint8_t> Encoder::compress_bc6h(const BC6H_options& options, const hdr_image& input) {
     // Output structure
-    auto out = BlockCompressed{};
+    auto out = Texture<uint8_t>{};
     out.grid_size = { input.size.x, input.size.y, 1, 1 };
     out.grid_glType = TEXPRESS_FLOAT;
     out.enc_blocksize = { 4, 4, 1 };
@@ -213,9 +213,9 @@ namespace texpress {
     return out;
   }
 
-BlockCompressed Encoder::compress_bc7(const ldr_image& input, const BC7_options& options) {
+  Texture<uint8_t> Encoder::compress_bc7(const BC7_options& options, const ldr_image& input) {
   // Output structure
-  auto out = BlockCompressed{};
+  auto out = Texture<uint8_t>{};
   out.grid_size = { input.size.x, input.size.y, 1, 1 };
   out.grid_glType = TEXPRESS_UINT;
   out.enc_blocksize = { 4, 4, 1 };
@@ -278,7 +278,7 @@ BlockCompressed Encoder::compress_bc7(const ldr_image& input, const BC7_options&
   return out;
 }
 
-BlockCompressed Encoder::compress_bc6h_legacy(const hdr_image& input) {
+  Texture<uint8_t> Encoder::compress_bc6h_legacy(const hdr_image& input) {
   // Parameters
   CMP_BC6H_BLOCK_PARAMETERS parameters;
   parameters.dwMask = 0xFFFF;   // default
@@ -288,7 +288,7 @@ BlockCompressed Encoder::compress_bc6h_legacy(const hdr_image& input) {
   parameters.bUsePatternRec = false;    // not used
 
   // Output structure
-  auto out = BlockCompressed{};
+  auto out = Texture<uint8_t>{};
   out.grid_size = { input.size.x, input.size.y, 1, 1 };
   out.grid_glType = TEXPRESS_FLOAT;
   out.enc_blocksize = { 4, 4, 1 };
@@ -345,7 +345,6 @@ BlockCompressed Encoder::compress_bc6h_legacy(const hdr_image& input) {
     const CMP_DWORD dwBlocksX = ((srcTexture.dwWidth + 3) >> 2);
     const CMP_DWORD dwBlocksY = ((srcTexture.dwHeight + 3) >> 2);
     const CMP_DWORD dwBlocksXY = dwBlocksX * dwBlocksY;
-    out.enc_blocks = { dwBlocksX, dwBlocksY, 1, 1 };
     out.enc_blocksize = { 4, 4, 1 };
 
     CMP_DWORD dstIndex = 0;    // Destination block index
@@ -402,7 +401,7 @@ BlockCompressed Encoder::compress_bc6h_legacy(const hdr_image& input) {
   return out;
 }
 
-BlockCompressed Encoder::compress_bc7_legacy(const ldr_image& input) {
+Texture<uint8_t> Encoder::compress_bc7_legacy(const ldr_image& input) {
   // Parameters
   double quality = 0.05;        // Quality set to low
   CMP_BOOL restrictColour = 0;  // Do not restrict colors
@@ -411,7 +410,7 @@ BlockCompressed Encoder::compress_bc7_legacy(const ldr_image& input) {
   double performance = 1;       // Performance set to optimal
 
   // Output structure
-  auto out = BlockCompressed{};
+  auto out = Texture<uint8_t>{};
   out.grid_size = { input.size.x, input.size.y, 1, 1 };
   out.grid_glType = TEXPRESS_UINT;
   out.enc_blocksize = { 4, 4, 1 };
@@ -474,7 +473,6 @@ BlockCompressed Encoder::compress_bc7_legacy(const ldr_image& input) {
     const CMP_DWORD dwBlocksX = ((srcTexture.dwWidth + 3) >> 2);
     const CMP_DWORD dwBlocksY = ((srcTexture.dwHeight + 3) >> 2);
     const CMP_DWORD dwBlocksXY = dwBlocksX * dwBlocksY;
-    out.enc_blocks = { dwBlocksX, dwBlocksY, 1, 1 };
     out.enc_blocksize = { 4, 4, 1 };
 
     CMP_DWORD dstIndex = 0;    // Destination block index

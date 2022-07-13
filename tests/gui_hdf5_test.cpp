@@ -107,6 +107,10 @@ struct update_pass : texpress::render_pass
         ImGui::SameLine(); ImGui::Text("Stride");
         ImGui::SameLine(); ImGui::InputInt("Z Stride", &stride_z);
 
+        if (ImGui::Button("Compress BC6H")) {
+          spdlog::info("Compress BC6H!");
+        }
+
         // --> Quit
         if (ImGui::Button("Quit")) {
           spdlog::info("Quit!");

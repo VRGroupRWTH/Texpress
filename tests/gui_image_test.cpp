@@ -102,7 +102,7 @@ struct update_pass : texpress::render_pass
         }
         else {
           spdlog::info("Compressing BC6H...");
-          imgEncoded = encoder->compress_bc6h(imgIn);
+          imgEncoded = encoder->compress_bc6h(texpress::BC6H_options(), imgIn);
           spdlog::info("Compressed!");
 
           texOut->compressedImage2D(0, imgEncoded.enc_glformat, glm::ivec2(imgEncoded.grid_size), 0, imgEncoded.data_size, imgEncoded.data_ptr.data());
@@ -141,7 +141,7 @@ struct update_pass : texpress::render_pass
   texpress::Encoder* encoder;
   
   // Files
-  texpress::BlockCompressed imgEncoded;
+  texpress::Texture<uint8_t> imgEncoded;
 
   // Debug Image
   hdr_image imgIn;

@@ -103,7 +103,7 @@ struct rendering_pass : texpress::render_pass
 
         imagef_in = texpress::fit_blocksize(glm::ivec2(4, 4), imagef_in);
 
-        image_out = encoder->compress_bc6h(imagef_in);
+        image_out = encoder->compress_bc6h(texpress::BC6H_options(), imagef_in);
       }
       else {
         int x, y, n;
@@ -285,7 +285,7 @@ void main()
 
   ldr_image image_in;
   hdr_image imagef_in;
-  texpress::BlockCompressed image_out;
+  texpress::Texture<uint8_t> image_out;
 
   texpress::Encoder* encoder;
 

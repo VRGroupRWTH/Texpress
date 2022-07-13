@@ -14,14 +14,14 @@
 
 namespace texpress
 {
-  struct TEXPRESS_EXPORT BlockCompressed {
-    std::vector<uint8_t> data_ptr;    // databuffer
+  template <typename T>
+  struct TEXPRESS_EXPORT Texture {
+    std::vector<T> data_ptr;          // databuffer
     uint64_t data_size;               // size of databuffer (redundant)
     glm::ivec4 grid_size;             // extents of each grid dimension
     gl::GLenum grid_glType;           // data type (unsigned int, float, ...) as glenum
-    glm::ivec4 enc_blocks;            // number of blocks in each dimension
-    glm::ivec3 enc_blocksize;         // extents of block dimensions
-    gl::GLenum enc_glformat;          // compression format as glenum
+    gl::GLenum enc_glformat;          // compression format as glenum (ignored for uncompressed)
+    glm::ivec3 enc_blocksize;         // extents of block dimensions (ignored for uncompressed)
   };
 
   struct TEXPRESS_EXPORT BC6H_options {
@@ -56,22 +56,14 @@ namespace texpress
     void listener(const Event& e);
 
   public:
-    BlockCompressed compress_bc6h(const BC6H_options& options, const glm::ivec4& size, uint64_t bytes, uint64_t offset, const uint8_t* input);
-    BlockCompressed compress_bc6h(const hdr_image& input, const BC6H_options& options = {});
-    BlockCompressed compress_bc6h(const ldr_image& input, const BC6H_options& options);
-    BlockCompressed compress_bc6h(const grid2& input, const BC6H_options& options);
-    BlockCompressed compress_bc6h(const grid3& input, const BC6H_options& options);
-    BlockCompressed compress_bc6h(const grid4& input, const BC6H_options& options);
+    Texture<uint8_t> compress_bc6h(const BC6H_options& options, const glm::ivec4& size, uint64_t bytes, uint64_t offset, const uint8_t* input);
+    Texture<uint8_t> compress_bc6h(const BC6H_options& options, const hdr_image& input);
 
-    BlockCompressed compress_bc7(const BC7_options& options, const glm::ivec4& size, uint64_t bytes, uint64_t offset, const uint8_t* input);
-    BlockCompressed compress_bc7(const hdr_image& input, const BC7_options& options);
-    BlockCompressed compress_bc7(const ldr_image& input, const BC7_options& options);
-    BlockCompressed compress_bc7(const grid2& input, const BC7_options& options);
-    BlockCompressed compress_bc7(const grid3& input, const BC7_options& options);
-    BlockCompressed compress_bc7(const grid4& input, const BC7_options& options);
+    Texture<uint8_t> compress_bc7(const BC7_options& options, const glm::ivec4& size, uint64_t bytes, uint64_t offset, const uint8_t* input);
+    Texture<uint8_t> compress_bc7(const BC7_options& options, const ldr_image& input);
 
-    BlockCompressed compress_bc6h_legacy(const hdr_image& input);
-    BlockCompressed compress_bc7_legacy(const ldr_image& input);
+    Texture<uint8_t> compress_bc6h_legacy(const hdr_image& input);
+    Texture<uint8_t> compress_bc7_legacy(const ldr_image& input);
   private:
     void compress_bc7_blocks(const glm::ivec4 size, const uint8_t* input_ptr, uint8_t* output_ptr);
 
