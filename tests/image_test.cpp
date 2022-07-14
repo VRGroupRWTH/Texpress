@@ -236,7 +236,7 @@ struct rendering_pass : texpress::render_pass
       else
       {
         texture_out->bindActive(0);
-        texture_out->compressedImage2D(0, image_out.enc_glformat, glm::ivec2(image_out.grid_size), 0, image_out.data_size, image_out.data_ptr.data());
+        texture_out->compressedImage2D(0, image_out.enc_glformat, glm::ivec2(image_out.grid_size), 0, image_out.data_size, image_out.data.data());
       }
 
       index_buffer->bind(gl::GLenum::GL_ELEMENT_ARRAY_BUFFER);

@@ -16,8 +16,9 @@ namespace texpress
 {
   template <typename T>
   struct TEXPRESS_EXPORT Texture {
-    std::vector<T> data_ptr;          // databuffer
+    std::vector<T> data;          // databuffer
     uint64_t data_size;               // size of databuffer (redundant)
+    uint8_t data_channels;
     glm::ivec4 grid_size;             // extents of each grid dimension
     gl::GLenum grid_glType;           // data type (unsigned int, float, ...) as glenum
     gl::GLenum enc_glformat;          // compression format as glenum (ignored for uncompressed)
@@ -56,16 +57,19 @@ namespace texpress
     void listener(const Event& e);
 
   public:
-    Texture<uint8_t> compress_bc6h(const BC6H_options& options, const glm::ivec4& size, uint64_t bytes, uint64_t offset, const uint8_t* input);
-    Texture<uint8_t> compress_bc6h(const BC6H_options& options, const hdr_image& input);
+    template <typename T>
+    std::vector<Texture<uint8_t>> convert_vec(const T* x_ptr, const T* y_ptr, const T* z_ptr);
+    Texture<uint8_t> convert(const BC6H_options& options, const std::vector<Texture<float>>& input);
 
-    Texture<uint8_t> compress_bc7(const BC7_options& options, const glm::ivec4& size, uint64_t bytes, uint64_t offset, const uint8_t* input);
+    Texture<uint8_t> compress_bc6h(const BC6H_options& options, const glm::ivec4& size, uint64_t bytes, const float* input);
+    Texture<uint8_t> compress_bc6h(const BC6H_options& options, const hdr_image& input);
+    Texture<uint8_t> compress_bc6h(const BC6H_options& options, const Texture<float>& input);
+    std::vector<Texture<uint8_t>> compress_bc6h(const BC6H_options& options, const std::vector<Texture<float>>& input);
+
     Texture<uint8_t> compress_bc7(const BC7_options& options, const ldr_image& input);
 
     Texture<uint8_t> compress_bc6h_legacy(const hdr_image& input);
     Texture<uint8_t> compress_bc7_legacy(const ldr_image& input);
-  private:
-    void compress_bc7_blocks(const glm::ivec4 size, const uint8_t* input_ptr, uint8_t* output_ptr);
 
   public:
 

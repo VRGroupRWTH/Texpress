@@ -91,24 +91,52 @@ struct update_pass : texpress::render_pass
             spdlog::error("Could not load file " + std::string(buf_path));
           }
         }
+
+        struct Funcs {
+          static int cb(ImGuiInputTextCallbackData* data) {
+            if (data->EventKey) {
+              spdlog::info("test");
+              bool* changed = reinterpret_cast<bool*>(data->UserData);
+              *changed = true;
+            }
+
+            return 0;
+          }
+        };
+
+
         ImGui::SameLine();
         ImGui::InputText("##Filepath", buf_path, 64);
-
         ImGui::Text("X Dataset");
-        ImGui::SameLine(); ImGui::InputText("##X Dataset", buf_x, 64);
+        ImGui::SameLine();
+        if (ImGui::InputText("##X Dataset", buf_x, 64))
+          configuration_changed = true;
         ImGui::SameLine(); ImGui::Text("Stride");
-        ImGui::SameLine(); ImGui::InputInt("X Stride", &stride_x);
+        ImGui::SameLine();
+        if (ImGui::InputInt("X Stride", &stride_x, 1, 100))
+          configuration_changed = true;
         ImGui::Text("Y Dataset");
-        ImGui::SameLine(); ImGui::InputText("##Y Dataset", buf_y, 64);
+        ImGui::SameLine();
+        if (ImGui::InputText("##Y Dataset", buf_y, 64))
+          configuration_changed = true;
         ImGui::SameLine(); ImGui::Text("Stride");
-        ImGui::SameLine(); ImGui::InputInt("Y Stride", &stride_y);
+        ImGui::SameLine();
+        if (ImGui::InputInt("Y Stride", &stride_y))
+          configuration_changed = true;
         ImGui::Text("Z Dataset");
-        ImGui::SameLine(); ImGui::InputText("##Z Dataset", buf_z, 64);
+        ImGui::SameLine();
+        if (ImGui::InputText("##Z Dataset", buf_z, 64))
+          configuration_changed = true;
         ImGui::SameLine(); ImGui::Text("Stride");
-        ImGui::SameLine(); ImGui::InputInt("Z Stride", &stride_z);
+        ImGui::SameLine();
+        if (ImGui::InputInt("Z Stride", &stride_z))
+          configuration_changed = true;
+
+        ImGui::Checkbox("Callback", &configuration_changed);
 
         if (ImGui::Button("Compress BC6H")) {
           spdlog::info("Compress BC6H!");
+          configuration_changed = false;
         }
 
         // --> Quit
@@ -209,6 +237,7 @@ struct update_pass : texpress::render_pass
   int stride_x;
   int stride_y;
   int stride_z;
+  bool configuration_changed;
 };
 
 TEST_CASE("GUI test.", "[texpress::gui]")

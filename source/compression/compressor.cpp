@@ -190,7 +190,9 @@ namespace texpress {
       out.enc_glformat = TEXPRESS_BC6H;
     }
     destTexture.dwDataSize = CMP_CalculateBufferSize(&destTexture);
-    destTexture.pData = new CMP_BYTE[destTexture.dwDataSize];
+    out.data_size = destTexture.dwDataSize;
+    out.data.resize(destTexture.dwDataSize);
+    destTexture.pData = out.data.data();
 
     CMP_CompressOptions cmp_options = { 0 };
     cmp_options.dwSize = sizeof(cmp_options);
@@ -200,15 +202,165 @@ namespace texpress {
     CMP_ERROR   cmp_status;
     cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, &cmp_options, &CompressionCallback);
     if (cmp_status != CMP_OK) {
-      free(srcTexture.pData);
-      free(destTexture.pData);
       std::printf("Compression returned an error %d\n", cmp_status);
+      return {};
     }
 
-    out.data_ptr = std::vector<uint8_t>(destTexture.pData, destTexture.pData + destTexture.dwDataSize);
-    out.data_size = destTexture.dwDataSize;
+    return out;
+  }
 
-    delete destTexture.pData;
+  std::vector<Texture<uint8_t>> Encoder::compress_bc6h(const BC6H_options& options, const std::vector<Texture<float>>& input) {
+    // Output structure
+    auto out = std::vector<Texture<uint8_t>>(input.size());
+
+    for (int t = 0; t < input[t].grid_size.w; t++) {
+      out[t].grid_size = input[t].grid_size;
+      out[t].grid_glType = TEXPRESS_FLOAT;
+      out[t].enc_blocksize = { 4, 4, 1 };
+
+      if (options.signed_data) {
+        out[t].enc_glformat = TEXPRESS_BC6H_SIGNED;
+      }
+      else {
+        out[t].enc_glformat = TEXPRESS_BC6H;
+      }
+
+      for (int z = 0; z < input[t].grid_size.z; z++) {
+        // Create the source texture
+        CMP_Texture srcTexture;
+        srcTexture.dwSize = sizeof(srcTexture);                                     // Size of this structure.
+        srcTexture.dwWidth = input[t].grid_size.x;                                          // Width of the texture.
+        srcTexture.dwHeight = input[t].grid_size.y;                                         // Height of the texture.
+        srcTexture.dwPitch = srcTexture.dwWidth * input[t].data_channels * sizeof(float);   // Distance to start of next line,
+        switch (input[t].data_channels) {                                                   // Format of the texture.
+        case 1:
+          srcTexture.format = CMP_FORMAT_R_32F;
+          spdlog::error("Input must have 4 channels for BC6H!");
+          break;
+        case 2:
+          srcTexture.format = CMP_FORMAT_RG_32F;
+          spdlog::error("Input must have 4 channels for BC6H!");
+          break;
+        case 3:
+          srcTexture.format = CMP_FORMAT_RGB_32F;
+          spdlog::error("Input must have 4 channels for BC6H!");
+          break;
+        case 4:
+          srcTexture.format = CMP_FORMAT_ARGB_32F;
+        }
+        srcTexture.dwDataSize = CMP_CalculateBufferSize(&srcTexture);   // Size of the current pData texture data
+        srcTexture.pData = (CMP_BYTE*) (input[t].data.data() + z * srcTexture.dwPitch);
+
+        // Init dest memory to use for compressed texture
+        CMP_Texture destTexture;
+        destTexture.dwSize = sizeof(destTexture);
+        destTexture.dwWidth = srcTexture.dwWidth;
+        destTexture.dwHeight = srcTexture.dwHeight;
+        destTexture.dwPitch = std::max(1U, ((destTexture.dwWidth + 3) / 4)) * 4;
+        if (options.signed_data) {
+          destTexture.format = CMP_FORMAT_BC6H_SF;
+        }
+        else {
+          destTexture.format = CMP_FORMAT_BC6H;
+        }
+
+        destTexture.dwDataSize = CMP_CalculateBufferSize(&destTexture);
+        out[t].data.resize(destTexture.dwDataSize * input[t].grid_size.z);
+        destTexture.pData = out[t].data.data() + z * destTexture.dwDataSize;
+
+        CMP_CompressOptions cmp_options = { 0 };
+        cmp_options.dwSize = sizeof(cmp_options);
+        cmp_options.fquality = options.quality;
+        cmp_options.dwnumThreads = options.threads;  // Uses auto, else set number of threads from 1..127 max
+
+        CMP_ERROR   cmp_status;
+        cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, &cmp_options, &CompressionCallback);
+        if (cmp_status != CMP_OK) {
+          std::printf("Compression returned an error %d\n", cmp_status);
+          return {};
+        }
+
+        out[t].data_size = destTexture.dwDataSize;
+      }
+    }
+
+    return out;
+  }
+
+  Texture<uint8_t> Encoder::compress_bc6h(const BC6H_options& options, const Texture<float>& input) {
+    // Output structure
+    auto out = Texture<uint8_t>{};
+
+    for (int t = 0; t < input.grid_size.w; t++) {
+      out.grid_size = input.grid_size;
+      out.grid_glType = TEXPRESS_FLOAT;
+      out.enc_blocksize = { 4, 4, 1 };
+
+      if (options.signed_data) {
+        out.enc_glformat = TEXPRESS_BC6H_SIGNED;
+      }
+      else {
+        out.enc_glformat = TEXPRESS_BC6H;
+      }
+
+      for (int z = 0; z < input.grid_size.z; z++) {
+        // Create the source texture
+        CMP_Texture srcTexture;
+        srcTexture.dwSize = sizeof(srcTexture);                                     // Size of this structure.
+        srcTexture.dwWidth = input.grid_size.x;                                          // Width of the texture.
+        srcTexture.dwHeight = input.grid_size.y;                                         // Height of the texture.
+        srcTexture.dwPitch = srcTexture.dwWidth * input.data_channels * sizeof(float);   // Distance to start of next line,
+        switch (input.data_channels) {                                                   // Format of the texture.
+        case 1:
+          srcTexture.format = CMP_FORMAT_R_32F;
+          spdlog::error("Input must have 4 channels for BC6H!");
+          break;
+        case 2:
+          srcTexture.format = CMP_FORMAT_RG_32F;
+          spdlog::error("Input must have 4 channels for BC6H!");
+          break;
+        case 3:
+          srcTexture.format = CMP_FORMAT_RGB_32F;
+          spdlog::error("Input must have 4 channels for BC6H!");
+          break;
+        case 4:
+          srcTexture.format = CMP_FORMAT_ARGB_32F;
+        }
+        srcTexture.dwDataSize = CMP_CalculateBufferSize(&srcTexture);   // Size of the current pData texture data
+        srcTexture.pData = (CMP_BYTE*)(input.data.data() + t * z * srcTexture.dwPitch + z * srcTexture.dwPitch);
+
+        // Init dest memory to use for compressed texture
+        CMP_Texture destTexture;
+        destTexture.dwSize = sizeof(destTexture);
+        destTexture.dwWidth = srcTexture.dwWidth;
+        destTexture.dwHeight = srcTexture.dwHeight;
+        destTexture.dwPitch = std::max(1U, ((destTexture.dwWidth + 3) / 4)) * 4;
+        if (options.signed_data) {
+          destTexture.format = CMP_FORMAT_BC6H_SF;
+        }
+        else {
+          destTexture.format = CMP_FORMAT_BC6H;
+        }
+
+        destTexture.dwDataSize = CMP_CalculateBufferSize(&destTexture);
+        out.data.resize(destTexture.dwDataSize * input.grid_size.w * input.grid_size.z);
+        destTexture.pData = out.data.data() + t * z * destTexture.dwPitch + z * destTexture.dwDataSize;
+
+        CMP_CompressOptions cmp_options = { 0 };
+        cmp_options.dwSize = sizeof(cmp_options);
+        cmp_options.fquality = options.quality;
+        cmp_options.dwnumThreads = options.threads;  // Uses auto, else set number of threads from 1..127 max
+
+        CMP_ERROR   cmp_status;
+        cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, &cmp_options, &CompressionCallback);
+        if (cmp_status != CMP_OK) {
+          std::printf("Compression returned an error %d\n", cmp_status);
+          return {};
+        }
+
+        out.data_size = destTexture.dwDataSize;
+      }
+    }
 
     return out;
   }
@@ -219,6 +371,8 @@ namespace texpress {
   out.grid_size = { input.size.x, input.size.y, 1, 1 };
   out.grid_glType = TEXPRESS_UINT;
   out.enc_blocksize = { 4, 4, 1 };
+
+  out.enc_glformat = TEXPRESS_BC7;
 
   // Load the source texture
   CMP_Texture srcTexture;
@@ -251,7 +405,8 @@ namespace texpress {
   destTexture.dwPitch = std::max(1U, ((destTexture.dwWidth + 3) / 4)) * 4;
   destTexture.format = CMP_FORMAT_BC7;
   destTexture.dwDataSize = CMP_CalculateBufferSize(&destTexture);
-  destTexture.pData = new CMP_BYTE[destTexture.dwDataSize];
+  out.data_size = destTexture.dwDataSize;
+  destTexture.pData = out.data.data();
 
   CMP_CompressOptions cmp_options = { 0 };
   cmp_options.dwSize = sizeof(cmp_options);
@@ -264,16 +419,9 @@ namespace texpress {
   CMP_ERROR   cmp_status;
   cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, &cmp_options, &CompressionCallback);
   if (cmp_status != CMP_OK) {
-    free(srcTexture.pData);
-    free(destTexture.pData);
     std::printf("Compression returned an error %d\n", cmp_status);
+    return {};
   }
-
-  out.data_ptr = std::vector<uint8_t>(destTexture.pData, destTexture.pData + destTexture.dwDataSize);
-  out.data_size = destTexture.dwDataSize;
-  out.enc_glformat = TEXPRESS_BC7;
-
-  delete destTexture.pData;
 
   return out;
 }
@@ -393,7 +541,7 @@ namespace texpress {
     CMP_ShutdownBCLibrary();
   }
 
-  out.data_ptr = std::vector<uint8_t>(destTexture.pData, destTexture.pData + destTexture.dwDataSize);
+  out.data = std::vector<uint8_t>(destTexture.pData, destTexture.pData + destTexture.dwDataSize);
   out.data_size = destTexture.dwDataSize;
 
   delete destTexture.pData;
@@ -522,7 +670,7 @@ Texture<uint8_t> Encoder::compress_bc7_legacy(const ldr_image& input) {
     CMP_ShutdownBCLibrary();
   }
 
-  out.data_ptr = std::vector<uint8_t>(destTexture.pData, destTexture.pData + destTexture.dwDataSize);
+  out.data = std::vector<uint8_t>(destTexture.pData, destTexture.pData + destTexture.dwDataSize);
   out.data_size = destTexture.dwDataSize;
 
   delete destTexture.pData;
