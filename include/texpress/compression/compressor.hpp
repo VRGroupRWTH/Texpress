@@ -4,7 +4,7 @@
 #include <texpress/events/event.hpp>
 #include <texpress/defines.hpp>
 #include <texpress/types/image.hpp>
-#include <texpress/types/bc_data.hpp>
+#include <texpress/types/texture.hpp>
 #include <texpress/types/regular_grid.hpp>
 
 #include <glbinding/gl45core/enum.h>
@@ -14,17 +14,6 @@
 
 namespace texpress
 {
-  template <typename T>
-  struct TEXPRESS_EXPORT Texture {
-    std::vector<T> data;          // databuffer
-    uint64_t data_size;               // size of databuffer (redundant)
-    uint8_t data_channels;
-    glm::ivec4 grid_size;             // extents of each grid dimension
-    gl::GLenum grid_glType;           // data type (unsigned int, float, ...) as glenum
-    gl::GLenum enc_glformat;          // compression format as glenum (ignored for uncompressed)
-    glm::ivec3 enc_blocksize;         // extents of block dimensions (ignored for uncompressed)
-  };
-
   struct TEXPRESS_EXPORT BC6H_options {
     float quality = 0.05;       // ignored for BC6H?
     uint8_t threads = 0;

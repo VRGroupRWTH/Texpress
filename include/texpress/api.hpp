@@ -19,6 +19,7 @@
 #include <texpress/io/regular_grid_io.hpp>
 #include <texpress/types/image.hpp>
 #include <texpress/types/regular_grid.hpp>
+#include <texpress/types/texture.hpp>
 
 #include <glbinding/gl/gl.h>
 #include <glm/glm.hpp>

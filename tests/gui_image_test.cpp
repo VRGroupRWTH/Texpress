@@ -5,9 +5,6 @@
 #include <filesystem>
 #include <spdlog/spdlog.h>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-
 void update(double dt) {
   // noop
 }
@@ -105,7 +102,7 @@ struct update_pass : texpress::render_pass
           imgEncoded = encoder->compress_bc6h(texpress::BC6H_options(), imgIn);
           spdlog::info("Compressed!");
 
-          texOut->compressedImage2D(0, imgEncoded.enc_glformat, glm::ivec2(imgEncoded.grid_size), 0, imgEncoded.data_size, imgEncoded.data_ptr.data());
+          texOut->compressedImage2D(0, imgEncoded.enc_glformat, glm::ivec2(imgEncoded.grid_size), 0, imgEncoded.data_size, imgEncoded.data.data());
         }
       }
       // --> Save compressed
@@ -144,7 +141,7 @@ struct update_pass : texpress::render_pass
   texpress::Texture<uint8_t> imgEncoded;
 
   // Debug Image
-  hdr_image imgIn;
+  texpress::hdr_image imgIn;
   std::unique_ptr<globjects::Texture> texIn;
   std::unique_ptr<globjects::Texture> texOut;
 
