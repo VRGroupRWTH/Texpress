@@ -175,8 +175,14 @@ namespace texpress
     }
 
 
-  hdf5_handler* hdf5_open(std::string filepath, std::vector<std::string> datasets) {
-    return nullptr;
+  hdf5::hdf5(const char* path, bool write) {
+    unsigned int flags = HighFive::File::ReadOnly + write;
+    file = new HighFive::File(path, flags);
+    filepath = path;
+  }
+
+  hdf5::~hdf5() {
+    delete file;
   }
 
   /* =========================================================================*/

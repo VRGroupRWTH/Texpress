@@ -26,12 +26,15 @@ struct update_pass : texpress::render_pass
     , t_prev(0.0)
     , lag(0.0)
     , buf_path("")
-    , buf_x("")
-    , buf_y("")
-    , buf_z("")
+    , buf_x("/u")
+    , buf_y("/v")
+    , buf_z("/w")
     , stride_x(1)
     , stride_y(1)
     , stride_z(1)
+    , offset_x(0)
+    , offset_y(0)
+    , offset_z(0)
     , texIn(globjects::Texture::createDefault())
     , texOut(globjects::Texture::createDefault())
     , hdf5_file(nullptr)
@@ -42,7 +45,7 @@ struct update_pass : texpress::render_pass
       t_prev = clock.timeF64(texpress::WallclockType::WALLCLK_MS);
 
       //strcpy(buf_path, std::filesystem::current_path().string().c_str());
-      strcpy(buf_path, (std::filesystem::current_path().string() + "\\..\\files\\Test.HDF5").c_str());
+      strcpy(buf_path, (std::filesystem::current_path().string() + "\\..\\files\\ctbl3d.nc").c_str());
     };
     on_update = [&] ( )
     {
@@ -88,6 +91,8 @@ struct update_pass : texpress::render_pass
             spdlog::error("Could not load file " + std::string(buf_path));
           }
         }
+        ImGui::SameLine();
+        ImGui::InputText("##Filepath", buf_path, 64);
 
         struct Funcs {
           static int cb(ImGuiInputTextCallbackData* data) {
@@ -101,37 +106,58 @@ struct update_pass : texpress::render_pass
           }
         };
 
-
-        ImGui::SameLine();
-        ImGui::InputText("##Filepath", buf_path, 64);
         ImGui::Text("X Dataset");
         ImGui::SameLine();
+        ImGui::BeginGroup();
         if (ImGui::InputText("##X Dataset", buf_x, 64))
           configuration_changed = true;
-        ImGui::SameLine(); ImGui::Text("Stride");
+        ImGui::Text("Stride");
         ImGui::SameLine();
-        if (ImGui::InputInt("X Stride", &stride_x, 1, 100))
+        if (ImGui::InputInt("##X Stride", &stride_x, 1, 100))
           configuration_changed = true;
+        ImGui::Text("Offset");
+        ImGui::SameLine();
+        if (ImGui::InputInt("##X Offset", &offset_x, 1, 100))
+          configuration_changed = true;
+        ImGui::EndGroup();
+
         ImGui::Text("Y Dataset");
         ImGui::SameLine();
+        ImGui::BeginGroup();
         if (ImGui::InputText("##Y Dataset", buf_y, 64))
           configuration_changed = true;
-        ImGui::SameLine(); ImGui::Text("Stride");
+        ImGui::Text("Stride");
         ImGui::SameLine();
-        if (ImGui::InputInt("Y Stride", &stride_y))
+        if (ImGui::InputInt("##Y Stride", &stride_y))
           configuration_changed = true;
+        ImGui::Text("Offset");
+        ImGui::SameLine();
+        if (ImGui::InputInt("##Y Offset", &offset_y, 1, 100))
+          configuration_changed = true;
+        ImGui::EndGroup();
+
         ImGui::Text("Z Dataset");
         ImGui::SameLine();
+        ImGui::BeginGroup();
         if (ImGui::InputText("##Z Dataset", buf_z, 64))
           configuration_changed = true;
-        ImGui::SameLine(); ImGui::Text("Stride");
+        ImGui::Text("Stride");
         ImGui::SameLine();
-        if (ImGui::InputInt("Z Stride", &stride_z))
+        if (ImGui::InputInt("##Z Stride", &stride_z))
           configuration_changed = true;
+        ImGui::Text("Offset");
+        ImGui::SameLine();
+        if (ImGui::InputInt("##Z Offset", &offset_z, 1, 100))
+          configuration_changed = true;
+        ImGui::EndGroup();
 
         ImGui::Checkbox("Callback", &configuration_changed);
 
         if (ImGui::Button("Compress BC6H")) {
+          texpress::hdf5 file(buf_path);
+          file.read_dataset(buf_x, hdf5_data, offset_x, stride_x, 0, 1);
+          file.read_dataset(buf_y, hdf5_data, offset_y, stride_y, hdf5_data.size(), 1);
+          file.read_dataset(buf_z, hdf5_data, offset_z, stride_z, hdf5_data.size(), 1);
           spdlog::info("Compress BC6H!");
           configuration_changed = false;
         }
@@ -216,6 +242,7 @@ struct update_pass : texpress::render_pass
   // Data buffers
   HighFive::File* hdf5_file;
   texpress::HDF5Tree hdf5_structure;
+  std::vector<float> hdf5_data;
   std::unique_ptr<globjects::Texture> texIn;
   std::unique_ptr<globjects::Texture> texOut;
 
@@ -234,6 +261,9 @@ struct update_pass : texpress::render_pass
   int stride_x;
   int stride_y;
   int stride_z;
+  int offset_x;
+  int offset_y;
+  int offset_z;
   bool configuration_changed;
 };
 

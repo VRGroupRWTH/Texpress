@@ -5,6 +5,8 @@
 #include <highfive/H5DataSpace.hpp>
 #include <glm/glm.hpp>
 
+#include <texpress/io/file_io.hpp>
+
 #include <texpress/export.hpp>
 
 namespace texpress
@@ -43,6 +45,52 @@ namespace texpress
     void filter_nodes(HighFive::ObjectType type, HDF5Node* node, std::vector<HDF5Node*>& nodes);
     bool parse(HighFive::File& file, std::string internal_path);
   };
+
+  class hdf5 {
+  public:
+    hdf5(const char * path, bool write = false);
+    hdf5(const hdf5& that) = delete;
+    hdf5(hdf5&& temp) = delete;
+    ~hdf5();
+    hdf5& operator=(const hdf5& that) = delete;
+    hdf5& operator=(hdf5&& temp) = delete;
+
+    template <typename T>
+    void read_dataset(const char* path, T* data_ptr, uint64_t data_size, uint64_t src_offset = 0, uint64_t src_stride = 0, uint64_t dst_offset = 0, uint64_t dst_stride = 0) {
+      auto dataset = file->getDataSet(path);
+      auto dimensions = dataset.getDimensions();
+
+      file_read(filepath, (char*)data_ptr, data_size, sizeof(T), 0, src_offset + dataset.getOffset(), src_stride, dst_offset, dst_stride);
+    }
+
+    template <typename T>
+    void read_dataset(const char* path, std::vector<T>& data, uint64_t src_offset = 0, uint64_t src_stride = 0, uint64_t dst_offset = 0, uint64_t dst_stride = 0) {
+      auto dataset = file->getDataSet(path);
+      auto dimensions = dataset.getDimensions();
+      auto element_count = (dataset.getElementCount() - src_offset) / src_stride;
+
+      std::vector<uint64_t> offsets{ src_offset };
+      std::vector<uint64_t> elements{ (dimensions[0] - src_offset) / src_stride };
+      std::vector<uint64_t> strides{ src_stride };
+
+      for (int i = 1; i < dimensions.size(); i++) {
+        offsets.push_back(0);
+        elements.push_back(dimensions[i]);
+        strides.push_back(1);
+      }
+
+      data.resize(element_count + dst_offset);
+      dataset.select(offsets, elements, strides).read<T>(data.data() + dst_offset);
+    }
+
+
+  private:
+    HighFive::File* file;
+    const char* filepath;
+
+  };
+
+
 
   typedef struct hdf5_handler hdf5_handler;
 

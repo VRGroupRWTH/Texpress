@@ -64,17 +64,7 @@ struct update_pass : texpress::render_pass
         if (texpress::file_exists(buf_path)) {
           spdlog::info("Uploading image...");
 
-          int x, y, n;
-          int c = 4;
-          float* image_data = stbi_loadf(buf_path, &x, &y, &n, c);
-          if (c == 0)
-            c = n;
-
-          imgIn.size = glm::ivec2(x, y);
-          imgIn.channels = c;
-          imgIn.data.assign(image_data, image_data + x * y * c);
-          stbi_image_free(image_data);
-
+          imgIn = texpress::load_image_hdr(buf_path, 4);
           imgIn = texpress::fit_blocksize(glm::ivec2(4, 4), imgIn);
 
           spdlog::info("Uploaded image!");
