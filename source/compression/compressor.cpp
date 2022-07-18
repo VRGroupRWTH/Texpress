@@ -166,7 +166,7 @@ namespace texpress {
       spdlog::error("Input must have 4 channels for BC6H!");
       break;
     case 3:
-      srcTexture.format = CMP_FORMAT_RGB_32F;
+      srcTexture.format = CMP_FORMAT_ARGB_32F;
       spdlog::error("Input must have 4 channels for BC6H!");
       break;
     case 4:
@@ -228,7 +228,7 @@ namespace texpress {
       for (int z = 0; z < input[t].grid_size.z; z++) {
         // Create the source texture
         CMP_Texture srcTexture;
-        srcTexture.dwSize = sizeof(srcTexture);                                     // Size of this structure.
+        srcTexture.dwSize = sizeof(srcTexture);                                             // Size of this structure.
         srcTexture.dwWidth = input[t].grid_size.x;                                          // Width of the texture.
         srcTexture.dwHeight = input[t].grid_size.y;                                         // Height of the texture.
         srcTexture.dwPitch = srcTexture.dwWidth * input[t].data_channels * sizeof(float);   // Distance to start of next line,
@@ -344,7 +344,59 @@ namespace texpress {
 
         destTexture.dwDataSize = CMP_CalculateBufferSize(&destTexture);
         out.data.resize(destTexture.dwDataSize * input.grid_size.w * input.grid_size.z);
-        destTexture.pData = out.data.data() + t * z * destTexture.dwPitch + z * destTexture.dwDataSize;
+        destTexture.pData = out.data.data() + t * z * destTexture.dwDataSize + z * destTexture.dwDataSize;
+
+        CMP_CompressOptions cmp_options = { 0 };
+        cmp_options.dwSize = sizeof(cmp_options);
+        cmp_options.fquality = options.quality;
+        cmp_options.dwnumThreads = options.threads;  // Uses auto, else set number of threads from 1..127 max
+
+        CMP_ERROR   cmp_status;
+        cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, &cmp_options, &CompressionCallback);
+        if (cmp_status != CMP_OK) {
+          std::printf("Compression returned an error %d\n", cmp_status);
+          return {};
+        }
+
+        out.data_size = destTexture.dwDataSize;
+      }
+    }
+
+    return out;
+  }
+
+  Texture<float> Encoder::decompress_bc6h(const BC6H_options& options, const Texture<uint8_t>& input) {
+    // Output structure
+    auto out = Texture<float>{};
+
+    for (int t = 0; t < input.grid_size.w; t++) {
+      out.grid_size = input.grid_size;
+      out.grid_glType = TEXPRESS_FLOAT;
+
+      for (int z = 0; z < input.grid_size.z; z++) {
+        // Create the source texture
+        CMP_Texture srcTexture;
+        srcTexture.dwSize = sizeof(srcTexture);                                          // Size of this structure.
+        srcTexture.dwWidth = input.grid_size.x;                                          // Width of the texture.
+        srcTexture.dwHeight = input.grid_size.y;                                         // Height of the texture.
+        srcTexture.dwPitch = std::max(1U, ((srcTexture.dwWidth + 3) / 4)) * 4;           // Distance to start of next line,
+        if (input.enc_glformat == TEXPRESS_BC6H_SIGNED)
+          srcTexture.format = CMP_FORMAT_BC6H_SF;
+        if (input.enc_glformat == TEXPRESS_BC6H)
+          srcTexture.format = CMP_FORMAT_BC6H;
+        srcTexture.dwDataSize = CMP_CalculateBufferSize(&srcTexture);   // Size of the current pData texture data
+        srcTexture.pData = (CMP_BYTE*)(input.data.data()) + t * z * srcTexture.dwDataSize + z * srcTexture.dwDataSize;
+
+        // Init dest memory to use for compressed texture
+        CMP_Texture destTexture;
+        destTexture.dwSize = sizeof(destTexture);
+        destTexture.dwWidth = srcTexture.dwWidth;
+        destTexture.dwHeight = srcTexture.dwHeight;
+        destTexture.dwPitch = srcTexture.dwWidth * input.data_channels * sizeof(float);
+        destTexture.format = CMP_FORMAT_ARGB_32F;
+        destTexture.dwDataSize = CMP_CalculateBufferSize(&destTexture);
+        out.data.resize(destTexture.dwDataSize * input.grid_size.w * input.grid_size.z);
+        destTexture.pData = (CMP_BYTE*)(out.data.data()) + t * z * destTexture.dwDataSize + z * destTexture.dwDataSize;
 
         CMP_CompressOptions cmp_options = { 0 };
         cmp_options.dwSize = sizeof(cmp_options);

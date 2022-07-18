@@ -20,6 +20,9 @@
 #include <texpress/types/image.hpp>
 #include <texpress/types/regular_grid.hpp>
 #include <texpress/types/texture.hpp>
+#include <texpress/helpers/datahelper.hpp>
+#include <texpress/helpers/typehelper.hpp>
+
 
 #include <glbinding/gl/gl.h>
 #include <glm/glm.hpp>

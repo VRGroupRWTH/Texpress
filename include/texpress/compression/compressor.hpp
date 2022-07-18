@@ -46,14 +46,11 @@ namespace texpress
     void listener(const Event& e);
 
   public:
-    template <typename T>
-    std::vector<Texture<uint8_t>> convert_vec(const T* x_ptr, const T* y_ptr, const T* z_ptr);
-    Texture<uint8_t> convert(const BC6H_options& options, const std::vector<Texture<float>>& input);
-
-    Texture<uint8_t> compress_bc6h(const BC6H_options& options, const glm::ivec4& size, uint64_t bytes, const float* input);
     Texture<uint8_t> compress_bc6h(const BC6H_options& options, const hdr_image& input);
     Texture<uint8_t> compress_bc6h(const BC6H_options& options, const Texture<float>& input);
     std::vector<Texture<uint8_t>> compress_bc6h(const BC6H_options& options, const std::vector<Texture<float>>& input);
+    Texture<float> decompress_bc6h(const BC6H_options& options, const Texture<uint8_t>& input);
+
 
     Texture<uint8_t> compress_bc7(const BC7_options& options, const ldr_image& input);
 

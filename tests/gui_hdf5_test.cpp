@@ -38,6 +38,7 @@ struct update_pass : texpress::render_pass
     , texIn(globjects::Texture::createDefault())
     , texOut(globjects::Texture::createDefault())
     , hdf5_file(nullptr)
+    , hdf5_data()
   {
     on_prepare = [&] ( )
     {
@@ -155,10 +156,19 @@ struct update_pass : texpress::render_pass
 
         if (ImGui::Button("Compress BC6H")) {
           texpress::hdf5 file(buf_path);
-          file.read_dataset(buf_x, hdf5_data, offset_x, stride_x, 0, 1);
-          file.read_dataset(buf_y, hdf5_data, offset_y, stride_y, hdf5_data.size(), 1);
-          file.read_dataset(buf_z, hdf5_data, offset_z, stride_z, hdf5_data.size(), 1);
+          hdf5_data.data = file.read_dataset<float>({ buf_x, buf_y, buf_z }, { uint64_t(offset_x), uint64_t(offset_y), uint64_t(offset_z) }, { uint64_t(stride_x), uint64_t(stride_y), uint64_t(stride_z) });
+          hdf5_data.data = texpress::interleave_force(hdf5_data.data, 4, hdf5_data.data.size() / 3, 0.0f);
+          hdf5_data.data_channels = 4;
+          hdf5_data.data_size = hdf5_data.data.size();
+          hdf5_data.grid_glType = gl::GLenum::GL_FLOAT;
+          auto dims = file.dataset_dimensions(buf_x);
+          for (int i = 0; i < hdf5_data.grid_size.length(); i++) {
+            hdf5_data.grid_size[i] = (i < dims.size()) ? dims[i] : 1;
+          }
+          hdf5_encoded = encoder->compress_bc6h(texpress::BC6H_options(), hdf5_data);
+          hdf5_decoded = encoder->decompress_bc6h(texpress::BC6H_options(), hdf5_encoded);
           spdlog::info("Compress BC6H!");
+
           configuration_changed = false;
         }
 
@@ -242,7 +252,9 @@ struct update_pass : texpress::render_pass
   // Data buffers
   HighFive::File* hdf5_file;
   texpress::HDF5Tree hdf5_structure;
-  std::vector<float> hdf5_data;
+  texpress::Texture<float> hdf5_data;
+  texpress::Texture<uint8_t> hdf5_encoded;
+  texpress::Texture<float> hdf5_decoded;
   std::unique_ptr<globjects::Texture> texIn;
   std::unique_ptr<globjects::Texture> texOut;
 

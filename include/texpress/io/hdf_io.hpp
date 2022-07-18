@@ -48,39 +48,115 @@ namespace texpress
 
   class hdf5 {
   public:
-    hdf5(const char * path, bool write = false);
+    hdf5(const char* path, bool write = false);
     hdf5(const hdf5& that) = delete;
     hdf5(hdf5&& temp) = delete;
     ~hdf5();
     hdf5& operator=(const hdf5& that) = delete;
     hdf5& operator=(hdf5&& temp) = delete;
 
+    /*
     template <typename T>
-    void read_dataset(const char* path, T* data_ptr, uint64_t data_size, uint64_t src_offset = 0, uint64_t src_stride = 0, uint64_t dst_offset = 0, uint64_t dst_stride = 0) {
-      auto dataset = file->getDataSet(path);
+    std::vector<T> read_dataset_file(std::vector<const char*> paths, std::vector<uint64_t> offsets, std::vector<uint64_t> strides) {
+      auto dataset = file->getDataSet(paths[0]);
       auto dimensions = dataset.getDimensions();
+      std::vector<uint64_t> elements;
+      auto elements_flat = 0;
+      dataset.getStorageSize();
 
-      file_read(filepath, (char*)data_ptr, data_size, sizeof(T), 0, src_offset + dataset.getOffset(), src_stride, dst_offset, dst_stride);
-    }
-
-    template <typename T>
-    void read_dataset(const char* path, std::vector<T>& data, uint64_t src_offset = 0, uint64_t src_stride = 0, uint64_t dst_offset = 0, uint64_t dst_stride = 0) {
-      auto dataset = file->getDataSet(path);
-      auto dimensions = dataset.getDimensions();
-      auto element_count = (dataset.getElementCount() - src_offset) / src_stride;
-
-      std::vector<uint64_t> offsets{ src_offset };
-      std::vector<uint64_t> elements{ (dimensions[0] - src_offset) / src_stride };
-      std::vector<uint64_t> strides{ src_stride };
-
-      for (int i = 1; i < dimensions.size(); i++) {
-        offsets.push_back(0);
-        elements.push_back(dimensions[i]);
-        strides.push_back(1);
+      // Missing offsets / strides are assumed as regular read operation
+      for (int i = 0; i < dimensions.size(); i++) {
+        if (offsets.size() < dimensions.size())
+          offsets.push_back(0);
+        if (strides.size() < dimensions.size())
+          strides.push_back(1);
       }
 
-      data.resize(element_count + dst_offset);
-      dataset.select(offsets, elements, strides).read<T>(data.data() + dst_offset);
+      // Count elements to initialize buffer
+      for (int i = 0; i < paths.size(); i++) {
+        dataset = file->getDataSet(paths[i]);
+        elements.push_back((dataset.getElementCount() - offsets[i]) / strides[i]);
+        elements_flat += elements.back();
+      }
+
+      std::vector<T> out(elements_flat);
+
+      // Fill buffer
+      uint64_t buffer_offset = 0;
+      for (int i = 0; i < paths.size(); i++) {
+        dataset = file->getDataSet(paths[i]);
+        dimensions = dataset.getDimensions();
+        auto physical_size = dataset.getStorageSize();
+        auto physical_offs = dataset.getOffset();
+
+        // Selection parameters specific to current dataset
+        std::vector<uint64_t> i_offsets{ offsets[i] };
+        std::vector<uint64_t> i_strides{ strides[i] };
+        std::vector<uint64_t> i_elements{ (dimensions[0] - i_offsets[0]) / i_strides[0] };
+
+        for (int j = 1; j < dimensions.size(); j++) {
+          i_offsets.push_back(0);
+          i_strides.push_back(1);
+          i_elements.push_back((dimensions[j] - i_offsets[j]) / i_strides[j]);
+        }
+
+        file_read(filepath, (char*)(out.data() + buffer_offset), out.data() * sizeof(T), physical_offs, physical_size, i_offsets[i], i_strides[i], i ,dimensions.size());
+        buffer_offset += elements[i];
+      }
+      return out;
+    }
+    */
+
+    template <typename T>
+    std::vector<T> read_dataset(std::vector<const char*> paths, std::vector<uint64_t> offsets, std::vector<uint64_t> strides) {
+      auto dataset = file->getDataSet(paths[0]);
+      auto dimensions = dataset.getDimensions();
+      std::vector<uint64_t> elements;
+      auto elements_flat = 0;
+      dataset.getStorageSize();
+
+      // Missing offsets / strides are assumed as regular read operation
+      for (int i = 0; i < dimensions.size(); i++) {
+        if (offsets.size() < dimensions.size())
+          offsets.push_back(0);
+        if (strides.size() < dimensions.size())
+          strides.push_back(1);
+      }
+
+      // Count elements to initialize buffer
+      for (int i = 0; i < paths.size(); i++) {
+        dataset = file->getDataSet(paths[i]);
+        elements.push_back((dataset.getElementCount() - offsets[i]) / strides[i]);
+        elements_flat += elements.back();
+      }
+
+      std::vector<T> out(elements_flat);
+
+      // Fill buffer
+      uint64_t buffer_offset = 0;
+      for (int i = 0; i < paths.size(); i++) {
+        dataset = file->getDataSet(paths[i]);
+        dimensions = dataset.getDimensions();
+
+        // Selection parameters specific to current dataset
+        std::vector<uint64_t> i_offsets{ offsets[i] };
+        std::vector<uint64_t> i_strides{ strides[i] };
+        std::vector<uint64_t> i_elements{ (dimensions[0] - i_offsets[0]) / i_strides[0]};
+
+        for (int j = 1; j < dimensions.size(); j++) {
+          i_offsets.push_back(0);
+          i_strides.push_back(1);
+          i_elements.push_back((dimensions[j] - i_offsets[j]) / i_strides[j]);
+        }
+
+        dataset.select(i_offsets, i_elements, i_strides).read<T>(out.data() + buffer_offset);
+        buffer_offset += elements[i];
+      }
+      return out;
+    }
+
+    std::vector<uint64_t> dataset_dimensions(const char* dataset) {
+      return file->getDataSet(dataset).getDimensions();
     }
 
 
@@ -89,8 +165,6 @@ namespace texpress
     const char* filepath;
 
   };
-
-
 
   typedef struct hdf5_handler hdf5_handler;
 
