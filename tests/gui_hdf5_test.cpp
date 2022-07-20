@@ -82,7 +82,7 @@ struct update_pass : texpress::render_pass
         window_flags |= ImGuiWindowFlags_NoScrollWithMouse;
         //ImGui::BeginChild("ChildL", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 260), false, window_flags);
         ImGui::BeginChild("ChildL", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0), false, window_flags);
-        if (ImGui::Button("Upload HDF5")) {
+        if (ImGui::Button("Select HDF5")) {
           try {
             hdf5_file = new HighFive::File(buf_path, HighFive::File::ReadOnly);
             hdf5_structure.parse(buf_path);
@@ -150,26 +150,69 @@ struct update_pass : texpress::render_pass
         ImGui::SameLine();
         if (ImGui::InputInt("##Z Offset", &offset_z, 1, 100))
           configuration_changed = true;
+
         ImGui::EndGroup();
 
         ImGui::Checkbox("Callback", &configuration_changed);
 
-        if (ImGui::Button("Compress BC6H")) {
+        if (ImGui::Button("Upload HDF5")) {
           texpress::hdf5 file(buf_path);
           hdf5_data.data = file.read_dataset<float>({ buf_x, buf_y, buf_z }, { uint64_t(offset_x), uint64_t(offset_y), uint64_t(offset_z) }, { uint64_t(stride_x), uint64_t(stride_y), uint64_t(stride_z) });
-          hdf5_data.data = texpress::interleave_force(hdf5_data.data, 4, hdf5_data.data.size() / 3, 0.0f);
+          hdf5_data.data = texpress::interleave_force(hdf5_data.data, 4, hdf5_data.data.size() / 3, 1.0f);
           hdf5_data.data_channels = 4;
-          hdf5_data.data_size = hdf5_data.data.size();
-          hdf5_data.grid_glType = gl::GLenum::GL_FLOAT;
+          hdf5_data.data_size = hdf5_data.data.size() * sizeof(float);
           auto dims = file.dataset_dimensions(buf_x);
           for (int i = 0; i < hdf5_data.grid_size.length(); i++) {
             hdf5_data.grid_size[i] = (i < dims.size()) ? dims[i] : 1;
           }
-          hdf5_encoded = encoder->compress_bc6h(texpress::BC6H_options(), hdf5_data);
-          hdf5_decoded = encoder->decompress_bc6h(texpress::BC6H_options(), hdf5_encoded);
-          spdlog::info("Compress BC6H!");
+          hdf5_data.gl_internalFormat = gl::GLenum::GL_RGBA32F;
+          hdf5_data.gl_pixelFormat = gl::GLenum::GL_RGBA;
+          hdf5_data.gl_type = gl::GLenum::GL_FLOAT;
+          texIn->image2D(0, hdf5_data.gl_internalFormat, hdf5_data.grid_size, 0, hdf5_data.gl_pixelFormat, hdf5_data.gl_type, hdf5_data.data.data());
 
           configuration_changed = false;
+        }
+
+
+        if (ImGui::Button("Compress BC6H") && !hdf5_data.data.empty()) {
+          hdf5_encoded = encoder->compress_bc6h(texpress::BC6H_options(), hdf5_data);
+          texOut->compressedImage2D(0, hdf5_encoded.gl_internalFormat, glm::ivec2(hdf5_encoded.grid_size), 0, hdf5_encoded.data_size / hdf5_encoded.grid_size.z, hdf5_encoded.data.data());
+        }
+
+        if (ImGui::Button("Decompress BC6H") && !hdf5_encoded.data.empty()) {
+          hdf5_decoded = encoder->decompress_bc6h(texpress::BC6H_options(), hdf5_encoded);
+          texOut->image2D(0, hdf5_decoded.gl_internalFormat, hdf5_decoded.grid_size, 0, hdf5_decoded.gl_pixelFormat, hdf5_decoded.gl_type, hdf5_decoded.data.data());
+
+          configuration_changed = false;
+        }
+
+
+        if (ImGui::Button("Save Source KTX") && !hdf5_data.data.empty()) {
+          texpress::save_ktx(hdf5_data, "source_data_test.ktx", hdf5_data.grid_size.z > 1, hdf5_data.grid_size.w > 1);
+        }
+
+        if (ImGui::Button("Load Source KTX")) {
+          hdf5_data = texpress::load_ktx<float>("source_data_test.ktx");
+          texOut->image2D(0, hdf5_data.gl_internalFormat, hdf5_data.grid_size, 0, hdf5_data.gl_pixelFormat, hdf5_data.gl_type, hdf5_data.data.data());
+        }
+
+
+        if (ImGui::Button("Save Compressed KTX") && !hdf5_encoded.data.empty()) {
+          texpress::save_ktx(hdf5_encoded, "enc_data_test.ktx", hdf5_encoded.grid_size.z > 1, hdf5_encoded.grid_size.w > 1);
+        }
+
+        if (ImGui::Button("Load Compressed KTX")) {
+          hdf5_encoded = texpress::load_ktx<uint8_t>("enc_data_test.ktx");
+          texOut->compressedImage2D(0, hdf5_encoded.gl_internalFormat, glm::ivec2(hdf5_encoded.grid_size), 0, hdf5_encoded.data_size / hdf5_encoded.grid_size.z, hdf5_encoded.data.data());
+        }
+
+        if (ImGui::Button("Save Decoded KTX") && !hdf5_decoded.data.empty()) {
+          texpress::save_ktx(hdf5_decoded, "dec_data_test.ktx", hdf5_decoded.grid_size.z > 1, hdf5_decoded.grid_size.w > 1);
+        }
+
+        if (ImGui::Button("Load Decoded KTX")) {
+          hdf5_decoded = texpress::load_ktx<float>("dec_data_test.ktx");
+          texOut->image2D(0, hdf5_decoded.gl_internalFormat, hdf5_decoded.grid_size, 0, hdf5_decoded.gl_pixelFormat, hdf5_decoded.gl_type, hdf5_decoded.data.data());
         }
 
         // --> Quit
@@ -177,6 +220,7 @@ struct update_pass : texpress::render_pass
           spdlog::info("Quit!");
           dispatcher->post(texpress::Event(texpress::EventType::APP_SHUTDOWN));
         }
+
         ImGui::EndChild();
       }
 
@@ -238,10 +282,24 @@ struct update_pass : texpress::render_pass
           visualize(hdf5_structure.root);
         }
         ImGui::EndChild();
+
+        ImGui::Text("Input Image");
+        if (texIn) {
+          ImTextureID texID = ImTextureID(texIn->id());
+          ImGui::Image(texID, ImVec2(500, 500), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
+        }
+        ImGui::SameLine(); ImGui::Text("Output Image"); ImGui::SameLine();
+        if (texOut) {
+          ImTextureID texID = ImTextureID(texOut->id());
+          ImGui::Image(texID, ImVec2(500, 500), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
+        }
       }
+
+      
+
       ImGui::End();
 
-      ImGui::ShowDemoWindow();
+      //ImGui::ShowDemoWindow();
     };
   }
 

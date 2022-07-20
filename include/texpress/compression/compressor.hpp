@@ -51,8 +51,9 @@ namespace texpress
     std::vector<Texture<uint8_t>> compress_bc6h(const BC6H_options& options, const std::vector<Texture<float>>& input);
     Texture<float> decompress_bc6h(const BC6H_options& options, const Texture<uint8_t>& input);
 
-
     Texture<uint8_t> compress_bc7(const BC7_options& options, const ldr_image& input);
+
+    Texture<float> to_ARGB(const Texture<float>& input);
 
     Texture<uint8_t> compress_bc6h_legacy(const hdr_image& input);
     Texture<uint8_t> compress_bc7_legacy(const ldr_image& input);

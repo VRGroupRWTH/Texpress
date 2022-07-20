@@ -147,8 +147,10 @@ namespace texpress {
     // Output structure
     auto out = Texture<uint8_t>{};
     out.grid_size = { input.size.x, input.size.y, 1, 1 };
-    out.grid_glType = TEXPRESS_FLOAT;
+    out.gl_type = TEXPRESS_FLOAT;
     out.enc_blocksize = { 4, 4, 1 };
+    out.gl_pixelFormat = gl_pixel(input.channels);
+    out.data_channels = input.channels;
 
     // Load the source texture
     CMP_Texture srcTexture;
@@ -183,11 +185,11 @@ namespace texpress {
     destTexture.dwPitch = std::max(1U, ((destTexture.dwWidth + 3) / 4)) * 4;
     if (options.signed_data) {
       destTexture.format = CMP_FORMAT_BC6H_SF;
-      out.enc_glformat = TEXPRESS_BC6H_SIGNED;
+      out.gl_internalFormat = TEXPRESS_BC6H_SIGNED;
     }
     else {
       destTexture.format = CMP_FORMAT_BC6H;
-      out.enc_glformat = TEXPRESS_BC6H;
+      out.gl_internalFormat = TEXPRESS_BC6H;
     }
     destTexture.dwDataSize = CMP_CalculateBufferSize(&destTexture);
     out.data_size = destTexture.dwDataSize;
@@ -215,14 +217,16 @@ namespace texpress {
 
     for (int t = 0; t < input[t].grid_size.w; t++) {
       out[t].grid_size = input[t].grid_size;
-      out[t].grid_glType = TEXPRESS_FLOAT;
+      out[t].gl_type = TEXPRESS_FLOAT;
       out[t].enc_blocksize = { 4, 4, 1 };
+      out[t].gl_pixelFormat = gl_pixel(input[t].data_channels);
+      out[t].data_channels = input[t].data_channels;
 
       if (options.signed_data) {
-        out[t].enc_glformat = TEXPRESS_BC6H_SIGNED;
+        out[t].gl_internalFormat = TEXPRESS_BC6H_SIGNED;
       }
       else {
-        out[t].enc_glformat = TEXPRESS_BC6H;
+        out[t].gl_internalFormat = TEXPRESS_BC6H;
       }
 
       for (int z = 0; z < input[t].grid_size.z; z++) {
@@ -290,19 +294,21 @@ namespace texpress {
   Texture<uint8_t> Encoder::compress_bc6h(const BC6H_options& options, const Texture<float>& input) {
     // Output structure
     auto out = Texture<uint8_t>{};
+    out.grid_size = input.grid_size;
+    out.gl_type = TEXPRESS_FLOAT;
+    out.enc_blocksize = { 4, 4, 1 };
+    out.gl_pixelFormat = gl_pixel(input.data_channels);
+    out.data_size = 0;
+    out.data_channels = input.data_channels;
+
+    if (options.signed_data) {
+      out.gl_internalFormat = TEXPRESS_BC6H_SIGNED;
+    }
+    else {
+      out.gl_internalFormat = TEXPRESS_BC6H;
+    }
 
     for (int t = 0; t < input.grid_size.w; t++) {
-      out.grid_size = input.grid_size;
-      out.grid_glType = TEXPRESS_FLOAT;
-      out.enc_blocksize = { 4, 4, 1 };
-
-      if (options.signed_data) {
-        out.enc_glformat = TEXPRESS_BC6H_SIGNED;
-      }
-      else {
-        out.enc_glformat = TEXPRESS_BC6H;
-      }
-
       for (int z = 0; z < input.grid_size.z; z++) {
         // Create the source texture
         CMP_Texture srcTexture;
@@ -358,7 +364,7 @@ namespace texpress {
           return {};
         }
 
-        out.data_size = destTexture.dwDataSize;
+        out.data_size += destTexture.dwDataSize;
       }
     }
 
@@ -368,11 +374,13 @@ namespace texpress {
   Texture<float> Encoder::decompress_bc6h(const BC6H_options& options, const Texture<uint8_t>& input) {
     // Output structure
     auto out = Texture<float>{};
+    out.grid_size = input.grid_size;
+    out.gl_type = TEXPRESS_FLOAT;
+    out.gl_pixelFormat = gl_pixel(input.data_channels);
+    out.gl_internalFormat = gl_internal_uncomnpressed(input.data_channels, 32, true);
+    out.data_size = 0;
 
     for (int t = 0; t < input.grid_size.w; t++) {
-      out.grid_size = input.grid_size;
-      out.grid_glType = TEXPRESS_FLOAT;
-
       for (int z = 0; z < input.grid_size.z; z++) {
         // Create the source texture
         CMP_Texture srcTexture;
@@ -380,9 +388,9 @@ namespace texpress {
         srcTexture.dwWidth = input.grid_size.x;                                          // Width of the texture.
         srcTexture.dwHeight = input.grid_size.y;                                         // Height of the texture.
         srcTexture.dwPitch = std::max(1U, ((srcTexture.dwWidth + 3) / 4)) * 4;           // Distance to start of next line,
-        if (input.enc_glformat == TEXPRESS_BC6H_SIGNED)
+        if (input.gl_internalFormat == TEXPRESS_BC6H_SIGNED)
           srcTexture.format = CMP_FORMAT_BC6H_SF;
-        if (input.enc_glformat == TEXPRESS_BC6H)
+        if (input.gl_internalFormat == TEXPRESS_BC6H)
           srcTexture.format = CMP_FORMAT_BC6H;
         srcTexture.dwDataSize = CMP_CalculateBufferSize(&srcTexture);   // Size of the current pData texture data
         srcTexture.pData = (CMP_BYTE*)(input.data.data()) + t * z * srcTexture.dwDataSize + z * srcTexture.dwDataSize;
@@ -393,7 +401,7 @@ namespace texpress {
         destTexture.dwWidth = srcTexture.dwWidth;
         destTexture.dwHeight = srcTexture.dwHeight;
         destTexture.dwPitch = srcTexture.dwWidth * input.data_channels * sizeof(float);
-        destTexture.format = CMP_FORMAT_ARGB_32F;
+        destTexture.format = CMP_FORMAT_RGBA_32F;
         destTexture.dwDataSize = CMP_CalculateBufferSize(&destTexture);
         out.data.resize(destTexture.dwDataSize * input.grid_size.w * input.grid_size.z);
         destTexture.pData = (CMP_BYTE*)(out.data.data()) + t * z * destTexture.dwDataSize + z * destTexture.dwDataSize;
@@ -404,13 +412,73 @@ namespace texpress {
         cmp_options.dwnumThreads = options.threads;  // Uses auto, else set number of threads from 1..127 max
 
         CMP_ERROR   cmp_status;
-        cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, &cmp_options, &CompressionCallback);
+        cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, NULL, &CompressionCallback);
         if (cmp_status != CMP_OK) {
           std::printf("Compression returned an error %d\n", cmp_status);
           return {};
         }
 
-        out.data_size = destTexture.dwDataSize;
+        out.data_size += destTexture.dwDataSize;
+      }
+    }
+
+    return out;
+  }
+
+  Texture<float> Encoder::to_ARGB(const Texture<float>& input) {
+    // Output structure
+    auto out = Texture<float>{};
+    out.grid_size = input.grid_size;
+    out.gl_type = input.gl_type;
+    out.gl_pixelFormat = input.gl_pixelFormat;
+    out.data_channels = input.data_channels;
+    out.gl_internalFormat = input.gl_internalFormat;
+    out.data_size = 0;
+
+    for (int t = 0; t < input.grid_size.w; t++) {
+      for (int z = 0; z < input.grid_size.z; z++) {
+        // Create the source texture
+        CMP_Texture srcTexture;
+        srcTexture.dwSize = sizeof(srcTexture);                                     // Size of this structure.
+        srcTexture.dwWidth = input.grid_size.x;                                          // Width of the texture.
+        srcTexture.dwHeight = input.grid_size.y;                                         // Height of the texture.
+        srcTexture.dwPitch = srcTexture.dwWidth * input.data_channels * sizeof(float);   // Distance to start of next line,
+        switch (input.data_channels) {                                                   // Format of the texture.
+        case 1:
+          srcTexture.format = CMP_FORMAT_R_32F;
+          break;
+        case 2:
+          srcTexture.format = CMP_FORMAT_RG_32F;
+          break;
+        case 3:
+          srcTexture.format = CMP_FORMAT_RGB_32F;
+          break;
+        case 4:
+          srcTexture.format = CMP_FORMAT_RGBA_32F;
+        }
+        srcTexture.dwDataSize = CMP_CalculateBufferSize(&srcTexture);   // Size of the current pData texture data
+        srcTexture.pData = (CMP_BYTE*)(input.data.data() + t * z * srcTexture.dwPitch + z * srcTexture.dwPitch);
+
+        // Init dest memory to use for compressed texture
+        CMP_Texture destTexture;
+        destTexture.dwSize = sizeof(destTexture);
+        destTexture.dwWidth = srcTexture.dwWidth;
+        destTexture.dwHeight = srcTexture.dwHeight;
+        destTexture.dwPitch = std::max(1U, ((destTexture.dwWidth + 3) / 4)) * 4;
+        destTexture.format = CMP_FORMAT_ARGB_32F;
+
+        destTexture.dwDataSize = CMP_CalculateBufferSize(&destTexture);
+        out.data.resize(destTexture.dwDataSize * input.grid_size.w * input.grid_size.z);
+        destTexture.pData = (uint8_t*)(out.data.data()) + t * z * destTexture.dwDataSize + z * destTexture.dwDataSize;
+
+        CMP_ERROR   cmp_status;
+        cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, NULL, &CompressionCallback);
+        if (cmp_status != CMP_OK) {
+          std::printf("Compression returned an error %d\n", cmp_status);
+          return {};
+        }
+
+        out.data_size += destTexture.dwDataSize;
       }
     }
 
@@ -421,10 +489,10 @@ namespace texpress {
   // Output structure
   auto out = Texture<uint8_t>{};
   out.grid_size = { input.size.x, input.size.y, 1, 1 };
-  out.grid_glType = TEXPRESS_UINT;
+  out.gl_type = TEXPRESS_UINT;
   out.enc_blocksize = { 4, 4, 1 };
-
-  out.enc_glformat = TEXPRESS_BC7;
+  out.gl_internalFormat = TEXPRESS_BC7;
+  out.gl_pixelFormat = gl_pixel(input.channels);
 
   // Load the source texture
   CMP_Texture srcTexture;
@@ -490,7 +558,7 @@ namespace texpress {
   // Output structure
   auto out = Texture<uint8_t>{};
   out.grid_size = { input.size.x, input.size.y, 1, 1 };
-  out.grid_glType = TEXPRESS_FLOAT;
+  out.gl_type = TEXPRESS_FLOAT;
   out.enc_blocksize = { 4, 4, 1 };
 
   // Load the source texture
@@ -612,7 +680,7 @@ Texture<uint8_t> Encoder::compress_bc7_legacy(const ldr_image& input) {
   // Output structure
   auto out = Texture<uint8_t>{};
   out.grid_size = { input.size.x, input.size.y, 1, 1 };
-  out.grid_glType = TEXPRESS_UINT;
+  out.gl_type = TEXPRESS_UINT;
   out.enc_blocksize = { 4, 4, 1 };
 
   // Load the source texture

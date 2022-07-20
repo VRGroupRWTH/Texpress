@@ -3,6 +3,7 @@
 #include <stb_image.h>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
+#include <string>
 
 namespace texpress {
   image load_image(const char* path, int requested_channels) {
@@ -35,21 +36,21 @@ namespace texpress {
 
   bool save_jpg(const char* path, const uint8_t* data_ptr, glm::ivec2 size, int channels, int quality) {
     if (data_ptr)
-      return stbi_write_jpg(path, size.x, size.y, channels, data_ptr, quality);
+      return stbi_write_jpg((std::string(path) + ".jpg").c_str(), size.x, size.y, channels, data_ptr, quality);
 
     return true;
   }
 
   bool save_png(const char* path, const uint8_t* data_ptr, glm::ivec2 size, int channels) {
     if (data_ptr)
-      return stbi_write_png(path, size.x, size.y, channels, data_ptr, size.x * channels * sizeof(uint8_t));
+      return stbi_write_png((std::string(path) + ".png").c_str(), size.x, size.y, channels, data_ptr, size.x * channels * sizeof(uint8_t));
 
     return true;
   }
 
   bool save_hdr(const char* path, const float* data_ptr, glm::ivec2 size, int channels) {
     if (data_ptr)
-      return stbi_write_hdr(path, size.x, size.y, channels, data_ptr);
+      return stbi_write_hdr((std::string(path) + ".hdr").c_str(), size.x, size.y, channels, data_ptr);
 
     return true;
   }

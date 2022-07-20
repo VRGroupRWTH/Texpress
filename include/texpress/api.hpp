@@ -22,6 +22,7 @@
 #include <texpress/types/texture.hpp>
 #include <texpress/helpers/datahelper.hpp>
 #include <texpress/helpers/typehelper.hpp>
+#include <texpress/helpers/ktxhelper.hpp>
 
 
 #include <glbinding/gl/gl.h>

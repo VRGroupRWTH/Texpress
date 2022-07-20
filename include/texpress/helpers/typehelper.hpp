@@ -7,16 +7,17 @@ namespace texpress {
   template <typename T>
   Texture<T> image_to_texture(image img) {
     Texture<T> tex{};
-    tex.data = std::copy(img.data);
-    tex.data_size = img.data.size() * sizeof(uint8_t);
+    tex.data.assign(img.data.begin(), img.data.end());
+    tex.data_size = img.data.size() * sizeof(T);
     tex.data_channels = img.channels;
     tex.grid_size.x = std::max(img.size.x, 1);
     tex.grid_size.y = std::max(img.size.y, 1);
     tex.grid_size.z = 1;
     tex.grid_size.w = 1;
-    tex.grid_glType = gl::GLenum::GL_UNSIGNED_BYTE;
+    tex.gl_type = gl::GLenum::GL_UNSIGNED_BYTE;
     tex.enc_blocksize = glm::ivec3(0, 0, 0);
-    tex.enc_glformat = gl::GLenum::GL_NONE;
+    tex.gl_internalFormat = gl_internal_uncomnpressed(img.channels, 8, false);
+    tex.gl_pixelFormat = gl_pixel(img.channels);
 
     return tex;
   }
@@ -24,16 +25,18 @@ namespace texpress {
   template <typename T>
   Texture<T> image_to_texture(hdr_image img) {
     Texture<T> tex{};
-    tex.data = std::copy(img.data);
-    tex.data_size = img.data.size() * sizeof(float);
+    tex.data.assign(img.data.begin(), img.data.end());
+    tex.data_size = img.data.size() * sizeof(T);
     tex.data_channels = img.channels;
     tex.grid_size.x = std::max(img.size.x, 1);
     tex.grid_size.y = std::max(img.size.y, 1);
     tex.grid_size.z = 1;
     tex.grid_size.w = 1;
-    tex.grid_glType = gl::GLenum::GL_FLOAT;
+    tex.gl_type = gl::GLenum::GL_FLOAT;
     tex.enc_blocksize = glm::ivec3(0, 0, 0);
-    tex.enc_glformat = gl::GLenum::GL_NONE;
+    tex.gl_internalFormat = gl_internal_uncomnpressed(img.channels, 32, true);
+    tex.gl_pixelFormat = gl_pixel(img.channels);
+
 
     return tex;
   }

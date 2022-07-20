@@ -1,3 +1,4 @@
+#pragma once
 #include <texpress/types/texture.hpp>
 #include <texpress/types/image.hpp>
 

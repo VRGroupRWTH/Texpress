@@ -86,8 +86,8 @@ set           (Compressonator_SHARED TRUE)
 find_package  (Compressonator REQUIRED)
 list          (APPEND PROJECT_LIBRARIES Compressonator::Compressonator)
 
-#find_package  (ktx REQUIRED)
-#list          (APPEND PROJECT_LIBRARIES KTX::ktx)
+find_package  (ktx REQUIRED)
+list          (APPEND PROJECT_LIBRARIES KTX::ktx)
 
 find_package  (HighFive REQUIRED)
 list          (APPEND PROJECT_LIBRARIES HighFive)
