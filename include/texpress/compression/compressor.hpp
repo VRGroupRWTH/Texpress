@@ -48,8 +48,10 @@ namespace texpress
   public:
     Texture<uint8_t> compress_bc6h(const BC6H_options& options, const hdr_image& input);
     Texture<uint8_t> compress_bc6h(const BC6H_options& options, const Texture<float>& input);
+    Texture<uint8_t> compress_bc6h_nvtt(const Texture<float>& input);
     std::vector<Texture<uint8_t>> compress_bc6h(const BC6H_options& options, const std::vector<Texture<float>>& input);
-    Texture<float> decompress_bc6h(const BC6H_options& options, const Texture<uint8_t>& input);
+    Texture<float> decompress_bc6h(const Texture<uint8_t>& input);
+    Texture<float> decompress_bc6h_nvtt(const Texture<uint8_t>& input);
 
     Texture<uint8_t> compress_bc7(const BC7_options& options, const ldr_image& input);
 

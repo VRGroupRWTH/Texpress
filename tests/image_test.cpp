@@ -37,8 +37,6 @@ struct rendering_pass : texpress::render_pass
     {
       // Setup Configuratin
       // ==================
-      stbi_set_flip_vertically_on_load(true);
-
       program->attach(vertex_shader.get());
       program->attach(fragment_shader.get());
       program->link();
@@ -85,115 +83,18 @@ struct rendering_pass : texpress::render_pass
       indices[5] = 0;
 
       if (bc6h) {
-        int x, y, n;
-        int c = 4;
-        float* image_data = stbi_loadf("../files/vr.jpg", &x, &y, &n, c);
-        if (c == 0)
-          c = n;
+        imagef_in = texpress::load_image_hdr("../files/vr.jpg", 4);
 
-        imagef_in.size = glm::ivec2(x, y);
-        imagef_in.channels = c;
-        imagef_in.data.assign(image_data, image_data + x * y * c);
-        stbi_image_free(image_data);
+        image_out = texpress::load_ktx<uint8_t>("3d_ktx_bc6h_neg.ktx2");
+        image_out.gl_internalFormat = gl::GLenum::GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT;
 
-        imagef_in = texpress::fit_blocksize(glm::ivec2(4, 4), imagef_in);
-
-        image_out = encoder->compress_bc6h(texpress::BC6H_options(), imagef_in);
-      }
+        //image_out = encoder->compress_bc6h(texpress::BC6H_options(), imagef_in);
+       }
       else {
-        int x, y, n;
-        int c = 4;
-        uint8_t* image_data = stbi_load("../files/vr.jpg", &x, &y, &n, c);
-        if (c == 0)
-          c = n;
-
-        image_in.size = glm::ivec2(x, y);
-        image_in.channels = c;
-        image_in.data.assign(image_data, image_data + x * y * c);
-        stbi_image_free(image_data);
-
-        image_in = texpress::fit_blocksize(glm::ivec2(4, 4), image_in);
+        image_in = texpress::load_image("../files/vr.jpg", 4);
 
         //image_out = encoder->compress_bc7(image_in);
       }
-
-      /*
-      // Save the results
-      if (cmp_status == CMP_OK) {
-
-        ktxTexture1* texture;
-        ktxTextureCreateInfo createInfo;
-        KTX_error_code result;
-        ktx_uint32_t level, layer, faceSlice;
-        ktx_size_t srcSize;
-        createInfo.glInternalformat = (ktx_uint32_t) gl::GL_COMPRESSED_RGBA_BPTC_UNORM;
-        createInfo.baseWidth = destTexture.dwWidth;
-        createInfo.baseHeight = destTexture.dwHeight;
-        createInfo.baseDepth = 1;
-        createInfo.numDimensions = 2;
-        createInfo.numLevels = 1;
-        createInfo.numLayers = 1;
-        createInfo.numFaces = 1;
-        createInfo.isArray = KTX_FALSE;
-        createInfo.generateMipmaps = KTX_FALSE;
-
-        result = ktxTexture1_Create(&createInfo,
-          KTX_TEXTURE_CREATE_ALLOC_STORAGE,
-          &texture);
-
-        texture->glFormat = (ktx_uint32_t)0;
-        texture->glInternalformat = (ktx_uint32_t)gl::GL_COMPRESSED_RGBA_BPTC_UNORM;
-        texture->glBaseInternalformat = (ktx_uint32_t)gl::GL_RGBA;
-        texture->glType = (ktx_uint32_t)0;
-        texture->pData = destTexture.pData;
-
-        srcSize = 0;
-        level = 0;
-        layer = 0;
-        faceSlice = 0;
-        result = ktxTexture_SetImageFromMemory(ktxTexture(texture),
-          level, layer, faceSlice,
-          destTexture.pData, srcSize);
-
-        ktxTexture_WriteToNamedFile(ktxTexture(texture), "../files/bc7_2d.ktx");
-        ktxTexture_Destroy(ktxTexture(texture));
-        */
-
-        // READ
-        /*
-        ktxTexture* texture2;
-        KTX_error_code result2;
-        ktx_size_t offset2;
-        ktx_uint8_t* image2;
-        ktx_uint32_t level2, layer2, faceSlice2;
-
-        result2 = ktxTexture_CreateFromNamedFile("../files/vr4_PNG_ARGB_8888_1.KTX",
-          KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
-          &texture2);
-
-        // Retrieve information about the texture from fields in the ktxTexture
-        // such as:
-        ktx_uint32_t numLevels2 = texture2->numLevels;
-        ktx_uint32_t baseWidth2 = texture2->baseWidth;
-        ktx_bool_t isArray2 = texture2->isArray;
-
-        // Retrieve a pointer to the image for a specific mip level, array layer
-        // & face or depth slice.
-        level2 = 0; layer2 = 0; faceSlice2 = 0;
-        result2 = ktxTexture_GetImageOffset(texture2, level2, layer2, faceSlice2, &offset2);
-        image2 = ktxTexture_GetData(texture2) + offset2;
-
-        //texture_out->compressedImage2D(0, gl::GL_COMPRESSED_RGBA_BPTC_UNORM, glm::ivec2(texture2->baseWidth, texture2->baseHeight), 0, texture2->dataSize, texture2->pData);
-        // ...
-        // Do something with the texture image.
-        // ...
-        ktxTexture_Destroy(texture2);
-        }
-        */
-
-      // Clean up memory used for textures
-      //free(srcTexture.pData);
-      //free(destTexture.pData);
 
     };
     on_update = [&]()
@@ -278,8 +179,8 @@ void main()
   bool bc6h = true;
   bool show_tex_1 = true;
 
-  ldr_image image_in;
-  hdr_image imagef_in;
+  texpress::ldr_image image_in;
+  texpress::hdr_image imagef_in;
   texpress::Texture<uint8_t> image_out;
 
   texpress::Encoder* encoder;

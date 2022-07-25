@@ -129,6 +129,9 @@ struct update_pass : texpress::render_pass
         else {
           spdlog::info("Compressing BC6H...");
           //to_argb(imgSource);
+          for (auto p = 0; p < imgSource.grid_size.x * imgSource.grid_size.y * imgSource.grid_size.z; p++) {
+            imgSource.data[p * imgSource.data_channels] *= -1; //Red
+          }
           imgEncoded = encoder->compress_bc6h(texpress::BC6H_options{ 0.05f, 0, true }, imgSource);
           spdlog::info("Compressed!");
 
@@ -137,7 +140,7 @@ struct update_pass : texpress::render_pass
       }
 
       if (ImGui::Button("Decompress BC6H") && !imgEncoded.data.empty()) {
-        imgDecoded = encoder->decompress_bc6h(texpress::BC6H_options(), imgEncoded);
+        imgDecoded = encoder->decompress_bc6h(imgEncoded);
         //to_rgba(imgDecoded);
         texOut->image2D(0, imgDecoded.gl_internalFormat, imgDecoded.grid_size, 0, imgDecoded.gl_pixelFormat, imgDecoded.gl_type, imgDecoded.data.data());
       }
@@ -151,7 +154,7 @@ struct update_pass : texpress::render_pass
       }
 
       if (ImGui::Button("Save Source KTX")) {
-        texpress::save_ktx(imgSource, "source_test.ktx", imgSource.grid_size.z > 1, imgSource.grid_size.w > 1);
+        texpress::save_ktx(imgSource, "source_test", imgSource.grid_size.z > 1, imgSource.grid_size.w > 1);
       }
 
       if (ImGui::Button("Load Source KTX")) {
@@ -160,7 +163,7 @@ struct update_pass : texpress::render_pass
       }
 
       if (ImGui::Button("Save Compressed KTX")) {
-        texpress::save_ktx(imgEncoded, "enc_test.ktx", imgEncoded.grid_size.z > 1, imgEncoded.grid_size.w > 1);
+        texpress::save_ktx(imgEncoded, "enc_test", false, false);
       }
 
       if (ImGui::Button("Load Compressed KTX")) {

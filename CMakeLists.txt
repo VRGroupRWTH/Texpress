@@ -92,6 +92,12 @@ list          (APPEND PROJECT_LIBRARIES KTX::ktx)
 find_package  (HighFive REQUIRED)
 list          (APPEND PROJECT_LIBRARIES HighFive)
 
+find_path     (tinygltf_INCLUDE_DIRS "tiny_gltf.h")
+import_library(tinygltf_INCLUDE_DIRS)
+
+find_package  (tinyexr CONFIG REQUIRED)
+list          (APPEND PROJECT_LIBRARIES unofficial::tinyexr::tinyexr)
+
 
 ##################################################    Targets     ##################################################
 add_library(${PROJECT_NAME} ${PROJECT_FILES})
