@@ -1,16 +1,8 @@
 #include <texpress/compression/compressor.hpp>
+#include <glbinding/gl45/enum.h>
 #include <spdlog/spdlog.h>
 
-#include <compressonator.h>
-#include <nvtt/nvtt.h>
-
 namespace texpress {
-  bool CompressionCallback(float fProgress, CMP_DWORD_PTR pUser1, CMP_DWORD_PTR pUser2) {
-    std::printf("\rCompression progress = %3.0f  ", fProgress);
-    //spdlog::info("\rCompression progress = {:3.0f}", fProgress);
-    return false; // If set true current compression will abort
-  }
-
   void Encoder::listener(const Event& e) {
     switch (e.mType) {
     case EventType::COMPRESS_BC6H:
@@ -30,871 +22,275 @@ namespace texpress {
     }
   }
 
-  ldr_image texpress::fit_blocksize(glm::ivec2 blocksize, const ldr_image& input) {
-    // If image size is not a multiple of blocksize
-    // this will yield the gap of missing pixels to fill
-    glm::ivec2 block_remainder = blocksize - (input.size % blocksize);
-    block_remainder.x = (block_remainder.x == blocksize.x) ? 0 : block_remainder.x;
-    block_remainder.y = (block_remainder.y == blocksize.y) ? 0 : block_remainder.y;
+  struct nvttOutputHandler : public nvtt::OutputHandler {
+  public:
+    nvttOutputHandler(uint8_t* buffer_out);
+    virtual ~nvttOutputHandler();
+    void beginImage(int size, int width, int height, int depth, int face, int miplevel);
+    bool writeData(const void* data, int size);
+    void endImage();
+    void setTotal(uint64_t t);
+    void setProgressOutput(int* ptr);
 
-    if ((block_remainder.x != 0) || (block_remainder.y != 0)) {
-      ldr_image out{ {}, input.size + block_remainder, input.channels };
-      uint64_t out_pixels = out.size.x * out.size.y;
-      out.data.resize(out_pixels * out.channels);
+  private:
+    uint8_t* buffer;
+    uint64_t offset;
+    uint64_t total;
+    uint64_t progress;
+    int percentage;
+    int* progress_output;
+  };
 
-      uint64_t in_pos = 0;
-      uint64_t out_pos = 0;
-      for (uint64_t y = 0; y < input.size.y; y++) {
-        for (uint64_t x = 0; x < input.size.x; x++) {
-          for (uint64_t c = 0; c < input.channels; c++) {
-            // Copy center left
-            out.data[out_pos] = input.data[in_pos];
-            out_pos++;
-            in_pos++;
-          }
-        }
 
-        for (uint64_t x = 0; x < block_remainder.x; x++) {
-          for (uint64_t c = 0; c < input.channels; c++) {
-            // Fill center right
-            out.data[out_pos] = (c == 3) ? 1 : 0;
-            out_pos++;
-          }
-        }
-      }
+  nvttOutputHandler::nvttOutputHandler(uint8_t* buffer_out) :
+      buffer(buffer_out)
+    , offset(0)
+    , total(0)
+    , progress(0)
+    , percentage(0)
+    , progress_output(nullptr)
+    {}
 
-      for (uint64_t y = 0; y < block_remainder.y; y++) {
-        for (uint64_t x = 0; x < input.size.x; x++) {
-          for (uint64_t c = 0; c < input.channels; c++) {
-            // Fill bottom
-            out.data[out_pos] = (c == 3) ? 1 : 0;
-            out_pos++;
-          }
-        }
-
-        for (uint64_t x = 0; x < block_remainder.x; x++) {
-          for (uint64_t c = 0; c < input.channels; c++) {
-            // Fill bottom right
-            out.data[out_pos] = (c == 3) ? 1 : 0;
-            out_pos++;
-          }
-        }
-      }
-
-      return out;
-    }
-
-    return input;
+  nvttOutputHandler::~nvttOutputHandler() {
+    buffer = nullptr;
+    progress_output = nullptr;
   }
 
-  hdr_image texpress::fit_blocksize(glm::ivec2 blocksize, const hdr_image& input) {
-    // If image size is not a multiple of blocksize
-    // this will yield the gap of missing pixels to fill
-    glm::ivec2 block_remainder = blocksize - (input.size % blocksize);
-    block_remainder.x = (block_remainder.x == blocksize.x) ? 0 : block_remainder.x;
-    block_remainder.y = (block_remainder.y == blocksize.y) ? 0 : block_remainder.y;
-
-    if ((block_remainder.x != 0) || (block_remainder.y != 0)) {
-      hdr_image out{ {}, input.size + block_remainder, input.channels };
-      uint64_t out_pixels = out.size.x * out.size.y;
-      out.data.resize(out_pixels * out.channels);
-
-      uint64_t in_pos = 0;
-      uint64_t out_pos = 0;
-      for (uint64_t y = 0; y < input.size.y; y++) {
-        for (uint64_t x = 0; x < input.size.x; x++) {
-          for (uint64_t c = 0; c < input.channels; c++) {
-            // Copy center left
-            out.data[out_pos] = input.data[in_pos];
-            out_pos++;
-            in_pos++;
-          }
-        }
-
-        for (uint64_t x = 0; x < block_remainder.x; x++) {
-          for (uint64_t c = 0; c < input.channels; c++) {
-            // Fill center right
-            out.data[out_pos] = (c == 3) ? 1 : 0;
-            out_pos++;
-          }
-        }
-      }
-
-      for (uint64_t y = 0; y < block_remainder.y; y++) {
-        for (uint64_t x = 0; x < input.size.x; x++) {
-          for (uint64_t c = 0; c < input.channels; c++) {
-            // Fill bottom
-            out.data[out_pos] = (c == 3) ? 1 : 0;
-            out_pos++;
-          }
-        }
-
-        for (uint64_t x = 0; x < block_remainder.x; x++) {
-          for (uint64_t c = 0; c < input.channels; c++) {
-            // Fill bottom right
-            out.data[out_pos] = (c == 3) ? 1 : 0;
-            out_pos++;
-          }
-        }
-      }
-
-      return out;
-    }
-
-    return input;
+  void nvttOutputHandler::beginImage(int size, int width, int height, int depth, int face, int miplevel) {
+    // ignore
   }
 
-  Texture<uint8_t> Encoder::compress_bc6h(const BC6H_options& options, const hdr_image& input) {
-    // Output structure
-    auto out = Texture<uint8_t>{};
-    out.grid_size = { input.size.x, input.size.y, 1, 1 };
-    out.gl_type = TEXPRESS_FLOAT;
-    out.enc_blocksize = { 4, 4, 1 };
-    out.gl_pixelFormat = gl_pixel(input.channels);
-    out.data_channels = input.channels;
-
-    // Load the source texture
-    CMP_Texture srcTexture;
-    srcTexture.dwSize = sizeof(srcTexture);                                     // Size of this structure.
-    srcTexture.dwWidth = input.size.x;                                          // Width of the texture.
-    srcTexture.dwHeight = input.size.y;                                         // Height of the texture.
-    srcTexture.dwPitch = srcTexture.dwWidth * input.channels * sizeof(float);   // Distance to start of next line,
-    switch (input.channels) {                                                   // Format of the texture.
-    case 1:
-      srcTexture.format = CMP_FORMAT_R_32F;
-      spdlog::error("Input must have 4 channels for BC6H!");
-      break;
-    case 2:
-      srcTexture.format = CMP_FORMAT_RG_32F;
-      spdlog::error("Input must have 4 channels for BC6H!");
-      break;
-    case 3:
-      srcTexture.format = CMP_FORMAT_ARGB_32F;
-      spdlog::error("Input must have 4 channels for BC6H!");
-      break;
-    case 4:
-      srcTexture.format = CMP_FORMAT_ARGB_32F;
-    }
-    srcTexture.dwDataSize = CMP_CalculateBufferSize(&srcTexture);   // Size of the current pData texture data
-    srcTexture.pData = (CMP_BYTE*)input.data.data();
-
-    // Init dest memory to use for compressed texture
-    CMP_Texture destTexture;
-    destTexture.dwSize = sizeof(destTexture);
-    destTexture.dwWidth = srcTexture.dwWidth;
-    destTexture.dwHeight = srcTexture.dwHeight;
-    destTexture.dwPitch = std::max(1U, ((destTexture.dwWidth + 3) / 4)) * 4;
-    if (options.signed_data) {
-      destTexture.format = CMP_FORMAT_BC6H_SF;
-      out.gl_internalFormat = TEXPRESS_BC6H_SIGNED;
-    }
-    else {
-      destTexture.format = CMP_FORMAT_BC6H;
-      out.gl_internalFormat = TEXPRESS_BC6H;
-    }
-    destTexture.dwDataSize = CMP_CalculateBufferSize(&destTexture);
-    out.data_size = destTexture.dwDataSize;
-    out.data.resize(destTexture.dwDataSize);
-    destTexture.pData = out.data.data();
-
-    CMP_CompressOptions cmp_options = { 0 };
-    cmp_options.dwSize = sizeof(cmp_options);
-    cmp_options.fquality = options.quality;
-    cmp_options.dwnumThreads = options.threads;  // Uses auto, else set number of threads from 1..127 max
-
-    CMP_ERROR   cmp_status;
-    cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, &cmp_options, &CompressionCallback);
-    if (cmp_status != CMP_OK) {
-      std::printf("Compression returned an error %d\n", cmp_status);
-      return {};
-    }
-
-    return out;
+  void nvttOutputHandler::endImage() {
+    // ignore
   }
 
-  std::vector<Texture<uint8_t>> Encoder::compress_bc6h(const BC6H_options& options, const std::vector<Texture<float>>& input) {
-    // Output structure
-    auto out = std::vector<Texture<uint8_t>>(input.size());
+  bool nvttOutputHandler::writeData(const void* data, int size) {
+    if (!data)
+      return false;
 
-    for (int t = 0; t < input[t].grid_size.w; t++) {
-      out[t].grid_size = input[t].grid_size;
-      out[t].gl_type = TEXPRESS_FLOAT;
-      out[t].enc_blocksize = { 4, 4, 1 };
-      out[t].gl_pixelFormat = gl_pixel(input[t].data_channels);
-      out[t].data_channels = input[t].data_channels;
+    //memcpy((void*)(buffer + offset), data, size);
 
-      if (options.signed_data) {
-        out[t].gl_internalFormat = TEXPRESS_BC6H_SIGNED;
+    uint8_t* ptr = (uint8_t*) data;
+    for (auto i = 0; i < size; i++) {
+      buffer[offset + i] = ptr[i];
+    }
+    offset += size;
+
+    // Progress
+    progress += size;
+    int p = int((100 * progress) / total);
+    if (p != percentage) {
+      percentage = p;
+
+      if (progress_output) {
+        *progress_output = percentage;
       }
       else {
-        out[t].gl_internalFormat = TEXPRESS_BC6H;
-      }
-
-      for (int z = 0; z < input[t].grid_size.z; z++) {
-        // Create the source texture
-        CMP_Texture srcTexture;
-        srcTexture.dwSize = sizeof(srcTexture);                                             // Size of this structure.
-        srcTexture.dwWidth = input[t].grid_size.x;                                          // Width of the texture.
-        srcTexture.dwHeight = input[t].grid_size.y;                                         // Height of the texture.
-        srcTexture.dwPitch = srcTexture.dwWidth * input[t].data_channels * sizeof(float);   // Distance to start of next line,
-        switch (input[t].data_channels) {                                                   // Format of the texture.
-        case 1:
-          srcTexture.format = CMP_FORMAT_R_32F;
-          spdlog::error("Input must have 4 channels for BC6H!");
-          break;
-        case 2:
-          srcTexture.format = CMP_FORMAT_RG_32F;
-          spdlog::error("Input must have 4 channels for BC6H!");
-          break;
-        case 3:
-          srcTexture.format = CMP_FORMAT_RGB_32F;
-          spdlog::error("Input must have 4 channels for BC6H!");
-          break;
-        case 4:
-          srcTexture.format = CMP_FORMAT_ARGB_32F;
-        }
-        srcTexture.dwDataSize = CMP_CalculateBufferSize(&srcTexture);   // Size of the current pData texture data
-        srcTexture.pData = (CMP_BYTE*) (input[t].data.data() + z * srcTexture.dwPitch);
-
-        // Init dest memory to use for compressed texture
-        CMP_Texture destTexture;
-        destTexture.dwSize = sizeof(destTexture);
-        destTexture.dwWidth = srcTexture.dwWidth;
-        destTexture.dwHeight = srcTexture.dwHeight;
-        destTexture.dwPitch = std::max(1U, ((destTexture.dwWidth + 3) / 4)) * 4;
-        if (options.signed_data) {
-          destTexture.format = CMP_FORMAT_BC6H_SF;
-        }
-        else {
-          destTexture.format = CMP_FORMAT_BC6H;
-        }
-
-        destTexture.dwDataSize = CMP_CalculateBufferSize(&destTexture);
-        out[t].data.resize(destTexture.dwDataSize * input[t].grid_size.z);
-        destTexture.pData = out[t].data.data() + z * destTexture.dwDataSize;
-
-        CMP_CompressOptions cmp_options = { 0 };
-        cmp_options.dwSize = sizeof(cmp_options);
-        cmp_options.fquality = options.quality;
-        cmp_options.dwnumThreads = options.threads;  // Uses auto, else set number of threads from 1..127 max
-
-        CMP_ERROR   cmp_status;
-        cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, &cmp_options, &CompressionCallback);
-        if (cmp_status != CMP_OK) {
-          std::printf("Compression returned an error %d\n", cmp_status);
-          return {};
-        }
-
-        out[t].data_size = destTexture.dwDataSize;
+        printf("\r%d%%", percentage);
+        fflush(stdout);
       }
     }
-
-    return out;
+    return true;
   }
 
-  Texture<uint8_t> Encoder::compress_bc6h(const BC6H_options& options, const Texture<float>& input) {
-    // Output structure
-    auto out = Texture<uint8_t>{};
-    out.grid_size = input.grid_size;
-    out.gl_type = TEXPRESS_FLOAT;
-    out.enc_blocksize = { 4, 4, 1 };
-    out.gl_pixelFormat = gl_pixel(input.data_channels);
-    out.data_size = 0;
-    out.data_channels = input.data_channels;
+  void nvttOutputHandler::setTotal(uint64_t t) {
+    total = t;
+  }
 
-    if (options.signed_data) {
-      out.gl_internalFormat = TEXPRESS_BC6H_SIGNED;
+  void nvttOutputHandler::setProgressOutput(int* ptr) {
+    progress_output = ptr;
+  }
+
+
+  uint64_t Encoder::estimate_size(const EncoderSettings& settings, const EncoderData& input) {
+    nvtt::Context context(false);
+
+    // Specify what compression settings to use
+    nvtt::CompressionOptions compressionOptions;
+    compressionOptions.setFormat(settings.encoding);
+    compressionOptions.setQuality(settings.quality);
+    if (settings.use_weights) {
+      compressionOptions.setColorWeights(settings.red_weight, settings.green_weight, settings.blue_weight, settings.alpha_weight);
     }
-    else {
-      out.gl_internalFormat = TEXPRESS_BC6H;
+
+    // Setup empty floating-point RGBA image to deduce needed buffersize.
+    nvtt::Surface image;
+    image.setImage(nvtt::InputFormat_RGBA_32F, input.dim_x, input.dim_y, 1, input.data_ptr);
+    uint64_t buffer_size = context.estimateSize(image, 1, compressionOptions) * input.dim_z * input.dim_t;
+
+    return buffer_size;
+  }
+
+  bool Encoder::compress(const EncoderSettings& settings, const EncoderData& input, EncoderData& output) {
+    if (!output.data_ptr) {
+      spdlog::error("Output Buffer not initialized");
+      return false;
     }
 
-    for (int t = 0; t < input.grid_size.w; t++) {
-      for (int z = 0; z < input.grid_size.z; z++) {
-        // Create the source texture
-        CMP_Texture srcTexture;
-        srcTexture.dwSize = sizeof(srcTexture);                                     // Size of this structure.
-        srcTexture.dwWidth = input.grid_size.x;                                          // Width of the texture.
-        srcTexture.dwHeight = input.grid_size.y;                                         // Height of the texture.
-        srcTexture.dwPitch = srcTexture.dwWidth * input.data_channels * sizeof(float);   // Distance to start of next line,
-        switch (input.data_channels) {                                                   // Format of the texture.
-        case 1:
-          srcTexture.format = CMP_FORMAT_R_32F;
-          spdlog::error("Input must have 4 channels for BC6H!");
-          break;
-        case 2:
-          srcTexture.format = CMP_FORMAT_RG_32F;
-          spdlog::error("Input must have 4 channels for BC6H!");
-          break;
-        case 3:
-          srcTexture.format = CMP_FORMAT_RGB_32F;
-          spdlog::error("Input must have 4 channels for BC6H!");
-          break;
-        case 4:
-          srcTexture.format = CMP_FORMAT_ARGB_32F;
+    if ((gl::GLenum)input.gl_format != gl::GLenum::GL_RGBA) {
+      spdlog::error("gl_format must be RGBA.");
+      return false;
+    }
+
+    // Create context which enables CUDA compression for capable GPUs.
+    // Incapable GPUs will fall back to CPU compression.
+    nvtt::Context context(false);
+
+    // Specify what compression settings to use
+    nvtt::CompressionOptions compressionOptions;
+    compressionOptions.setFormat(settings.encoding);
+    compressionOptions.setQuality(settings.quality);
+    if (settings.use_weights) {
+      compressionOptions.setColorWeights(settings.red_weight, settings.green_weight, settings.blue_weight, settings.alpha_weight);
+    }
+
+    // Setup empty floating-point RGBA image to deduce needed buffersize.
+    nvtt::Surface image;
+    image.setImage(nvtt::InputFormat_RGBA_32F, input.dim_x, input.dim_y, 1, input.data_ptr);
+    uint64_t buffer_size = context.estimateSize(image, 1, compressionOptions) * input.dim_z * input.dim_t;
+
+    if (buffer_size > output.data_bytes) {
+      spdlog::error("Output Buffer {0} bytes too small", buffer_size - output.data_bytes);
+      return false;
+    }
+
+    // Custom output handler to show progress.
+    nvttOutputHandler outputHandler(output.data_ptr);
+    outputHandler.setTotal(buffer_size);
+    if (settings.progress_ptr) {
+      outputHandler.setProgressOutput(settings.progress_ptr);
+    }
+
+    // Official output handler which registers the custom handler.
+    nvtt::OutputOptions outputOptions;
+    outputOptions.setOutputHandler((nvtt::OutputHandler*)&outputHandler);
+
+    // Prepare output
+    output.dim_x = input.dim_x;
+    output.dim_y = input.dim_y;
+    output.dim_z = input.dim_z;
+    output.dim_t = input.dim_t;
+    output.channels = input.channels;
+    
+    switch (settings.encoding) {
+    case nvtt::Format_BC6S:
+      output.gl_internal = (uint32_t) gl::GLenum::GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT;
+      break;
+    case nvtt::Format_BC6U:
+      output.gl_internal = (uint32_t) gl::GLenum::GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT;
+      break;
+    default:
+      spdlog::error("Encoding {0} is unsupported, use BC6H.", settings.encoding);
+      return false;
+    }
+
+    // Compress whole (time) volume
+    uint64_t offset = 0;
+    for (int t = 0; t < input.dim_t; t++) {
+      for (int z = 0; z < input.dim_z; z++) {
+        image.setImage(nvtt::InputFormat_RGBA_32F, input.dim_x, input.dim_y, 1, input.data_ptr + offset);
+
+        if (!context.compress(image, 0, 0, compressionOptions, outputOptions)) {
+          spdlog::error("Compression failed");
+          return false;
         }
-        srcTexture.dwDataSize = CMP_CalculateBufferSize(&srcTexture);   // Size of the current pData texture data
-        srcTexture.pData = (CMP_BYTE*)(input.data.data() + t * z * srcTexture.dwPitch + z * srcTexture.dwPitch);
 
-        // Init dest memory to use for compressed texture
-        CMP_Texture destTexture;
-        destTexture.dwSize = sizeof(destTexture);
-        destTexture.dwWidth = srcTexture.dwWidth;
-        destTexture.dwHeight = srcTexture.dwHeight;
-        destTexture.dwPitch = std::max(1U, ((destTexture.dwWidth + 3) / 4)) * 4;
-        if (options.signed_data) {
-          destTexture.format = CMP_FORMAT_BC6H_SF;
-        }
-        else {
-          destTexture.format = CMP_FORMAT_BC6H;
-        }
-
-        destTexture.dwDataSize = CMP_CalculateBufferSize(&destTexture);
-        out.data.resize(destTexture.dwDataSize * input.grid_size.w * input.grid_size.z);
-        destTexture.pData = out.data.data() + t * z * destTexture.dwDataSize + z * destTexture.dwDataSize;
-
-        CMP_CompressOptions cmp_options = { 0 };
-        cmp_options.dwSize = sizeof(cmp_options);
-        cmp_options.fquality = options.quality;
-        cmp_options.dwnumThreads = options.threads;  // Uses auto, else set number of threads from 1..127 max
-
-        CMP_ERROR   cmp_status;
-        cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, &cmp_options, &CompressionCallback);
-        if (cmp_status != CMP_OK) {
-          std::printf("Compression returned an error %d\n", cmp_status);
-          return {};
-        }
-
-        out.data_size += destTexture.dwDataSize;
+        offset += input.dim_x * input.dim_y * input.channels;
       }
     }
 
-    return out;
+    return true;
   }
 
-  /*
+
   Texture<uint8_t> Encoder::compress_bc6h_nvtt(const Texture<float>& input) {
     // Output structure
     auto out = Texture<uint8_t>{};
+    out.data_channels = input.data_channels;
     out.grid_size = input.grid_size;
     out.gl_type = TEXPRESS_FLOAT;
+    out.gl_pixelFormat = gl_pixel(out.data_channels);
+    out.gl_internalFormat = TEXPRESS_BC6H_SIGNED;
     out.enc_blocksize = { 4, 4, 1 };
-    out.gl_pixelFormat = gl_pixel(input.data_channels);
-    out.data_size = 0;
-    out.data_channels = input.data_channels;
 
-    if (options.signed_data) {
-      out.gl_internalFormat = TEXPRESS_BC6H_SIGNED;
-    }
-    else {
-      out.gl_internalFormat = TEXPRESS_BC6H;
-    }
-
+    // Load the source image into a floating-point RGBA image.
     nvtt::Surface image;
-    image.load();
+    image.setImage(nvtt::InputFormat_RGBA_32F, out.grid_size.x, out.grid_size.y, out.grid_size.z, input.data.data());
 
     // Context
     // Create the compression context; enable CUDA compression, so that
     // CUDA-capable GPUs will use GPU acceleration for compression, with a
     // fallback on other GPUs for CPU compression.
-    nvtt::Context context(true);
+    nvtt::Context context(false);
 
     // Specify what compression settings to use. In our case the only default
     // to change is that we want to compress to BC7.
     nvtt::CompressionOptions compressionOptions;
     compressionOptions.setFormat(nvtt::Format_BC6S);
+    compressionOptions.setQuality(nvtt::Quality_Fastest);
+    //compressionOptions.setColorWeights(1.0, 1.0, 1.0);
+
+    out.data_size = context.estimateSize(image, 1, compressionOptions);
 
     // Specify how to output the compressed data. Here, we say to write to a file.
     // We could also use a custom output handler here instead.
+    out.data.resize(out.data_size);
+    nvttOutputHandler outputHandler(out.data.data());
+    outputHandler.setTotal(out.data_size);
     nvtt::OutputOptions outputOptions;
-    outputOptions.setSrgbFlag(false);
 
+    outputOptions.setOutputHandler((nvtt::OutputHandler*)&outputHandler);
+    //if (!context.compress(image, 0, 0, compressionOptions, outputOptions)) {
+    //  spdlog::error("Compression failed");
+    //}
+
+    uint64_t offset = 0;
     for (int t = 0; t < input.grid_size.w; t++) {
       for (int z = 0; z < input.grid_size.z; z++) {
-        // Create the source texture
-        CMP_Texture srcTexture;
-        srcTexture.dwSize = sizeof(srcTexture);                                     // Size of this structure.
-        srcTexture.dwWidth = input.grid_size.x;                                          // Width of the texture.
-        srcTexture.dwHeight = input.grid_size.y;                                         // Height of the texture.
-        srcTexture.dwPitch = srcTexture.dwWidth * input.data_channels * sizeof(float);   // Distance to start of next line,
-        switch (input.data_channels) {                                                   // Format of the texture.
-        case 1:
-          srcTexture.format = CMP_FORMAT_R_32F;
-          spdlog::error("Input must have 4 channels for BC6H!");
-          break;
-        case 2:
-          srcTexture.format = CMP_FORMAT_RG_32F;
-          spdlog::error("Input must have 4 channels for BC6H!");
-          break;
-        case 3:
-          srcTexture.format = CMP_FORMAT_RGB_32F;
-          spdlog::error("Input must have 4 channels for BC6H!");
-          break;
-        case 4:
-          srcTexture.format = CMP_FORMAT_ARGB_32F;
+        nvtt::Surface img;
+        img.setImage(nvtt::InputFormat_RGBA_32F, out.grid_size.x, out.grid_size.y, 1, (input.data.data() + offset));
+
+        if (!context.compress(img, 0, 0, compressionOptions, outputOptions)) {
+          spdlog::error("Compression failed");
         }
-        srcTexture.dwDataSize = CMP_CalculateBufferSize(&srcTexture);   // Size of the current pData texture data
-        srcTexture.pData = (CMP_BYTE*)(input.data.data() + t * z * srcTexture.dwPitch + z * srcTexture.dwPitch);
-
-        // Init dest memory to use for compressed texture
-        CMP_Texture destTexture;
-        destTexture.dwSize = sizeof(destTexture);
-        destTexture.dwWidth = srcTexture.dwWidth;
-        destTexture.dwHeight = srcTexture.dwHeight;
-        destTexture.dwPitch = std::max(1U, ((destTexture.dwWidth + 3) / 4)) * 4;
-        if (options.signed_data) {
-          destTexture.format = CMP_FORMAT_BC6H_SF;
-        }
-        else {
-          destTexture.format = CMP_FORMAT_BC6H;
-        }
-
-        destTexture.dwDataSize = CMP_CalculateBufferSize(&destTexture);
-        out.data.resize(destTexture.dwDataSize * input.grid_size.w * input.grid_size.z);
-        destTexture.pData = out.data.data() + t * z * destTexture.dwDataSize + z * destTexture.dwDataSize;
-
-        CMP_CompressOptions cmp_options = { 0 };
-        cmp_options.dwSize = sizeof(cmp_options);
-        cmp_options.fquality = options.quality;
-        cmp_options.dwnumThreads = options.threads;  // Uses auto, else set number of threads from 1..127 max
-
-        CMP_ERROR   cmp_status;
-        cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, &cmp_options, &CompressionCallback);
-        if (cmp_status != CMP_OK) {
-          std::printf("Compression returned an error %d\n", cmp_status);
-          return {};
-        }
-
-        out.data_size += destTexture.dwDataSize;
+        
+        offset += input.grid_size.x * input.grid_size.y * input.data_channels;
       }
+
+      offset += input.grid_size.x * input.grid_size.y * input.grid_size.z * input.data_channels;
     }
 
     return out;
   }
-  */
 
-  Texture<float> Encoder::decompress_bc6h(const Texture<uint8_t>& input) {
+  Texture<float> Encoder::decompress_bc6h_nvtt(const Texture<uint8_t>& input) {
     // Output structure
     auto out = Texture<float>{};
     out.grid_size = input.grid_size;
     out.gl_type = TEXPRESS_FLOAT;
-    out.gl_pixelFormat = gl_pixel(input.data_channels);
-    out.gl_internalFormat = gl_internal_uncomnpressed(input.data_channels, 32, true);
-    out.data_size = 0;
-
-    for (int t = 0; t < input.grid_size.w; t++) {
-      for (int z = 0; z < input.grid_size.z; z++) {
-        // Create the source texture
-        CMP_Texture srcTexture;
-        srcTexture.dwSize = sizeof(srcTexture);                                          // Size of this structure.
-        srcTexture.dwWidth = input.grid_size.x;                                          // Width of the texture.
-        srcTexture.dwHeight = input.grid_size.y;                                         // Height of the texture.
-        srcTexture.dwPitch = std::max(1U, ((srcTexture.dwWidth + 3) / 4)) * 4;           // Distance to start of next line,
-        if (input.gl_internalFormat == TEXPRESS_BC6H_SIGNED)
-          srcTexture.format = CMP_FORMAT_BC6H_SF;
-        if (input.gl_internalFormat == TEXPRESS_BC6H)
-          srcTexture.format = CMP_FORMAT_BC6H;
-        srcTexture.dwDataSize = CMP_CalculateBufferSize(&srcTexture);   // Size of the current pData texture data
-        srcTexture.nBlockWidth = input.enc_blocksize.x;
-        srcTexture.nBlockHeight = input.enc_blocksize.y;
-        srcTexture.nBlockDepth = input.enc_blocksize.z;
-        srcTexture.pData = (CMP_BYTE*)(input.data.data()) + t * z * srcTexture.dwDataSize + z * srcTexture.dwDataSize;
-
-        // Init dest memory to use for compressed texture
-        CMP_Texture destTexture;
-        destTexture.dwSize = sizeof(destTexture);
-        destTexture.dwWidth = srcTexture.dwWidth;
-        destTexture.dwHeight = srcTexture.dwHeight;
-        destTexture.dwPitch = srcTexture.dwWidth * input.data_channels * sizeof(float);
-        destTexture.format = CMP_FORMAT_ARGB_32F;
-        destTexture.dwDataSize = CMP_CalculateBufferSize(&destTexture);
-        out.data.resize(destTexture.dwDataSize * input.grid_size.w * input.grid_size.z);
-        destTexture.pData = (CMP_BYTE*)(out.data.data()) + t * z * destTexture.dwDataSize + z * destTexture.dwDataSize;
-
-        CMP_ERROR   cmp_status;
-        cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, NULL, &CompressionCallback);
-        if (cmp_status != CMP_OK) {
-          std::printf("Compression returned an error %d\n", cmp_status);
-          return {};
-        }
-
-        out.data_size += destTexture.dwDataSize;
-      }
-    }
-
-    return out;
-  }
-
-  Texture<float> Encoder::to_ARGB(const Texture<float>& input) {
-    // Output structure
-    auto out = Texture<float>{};
-    out.grid_size = input.grid_size;
-    out.gl_type = input.gl_type;
-    out.gl_pixelFormat = input.gl_pixelFormat;
     out.data_channels = input.data_channels;
-    out.gl_internalFormat = input.gl_internalFormat;
-    out.data_size = 0;
+    out.gl_pixelFormat = gl_pixel(out.data_channels);
+    out.gl_internalFormat = gl_internal_uncomnpressed(out.data_channels, 32, true);
+    out.data_size = out.grid_size.x * out.grid_size.y * out.grid_size.z * out.grid_size.w * out.data_channels;
+    // Load the source image into a floating-point RGBA image.
+    nvtt::Surface image;
+    image.setImage3D(nvtt::Format_BC6S, input.grid_size.x, input.grid_size.y, input.grid_size.z, input.data.data());
+    const float* r_ptr = (out.data_channels >= 1) ? image.channel(0) : nullptr;
+    const float* g_ptr = (out.data_channels >= 2) ? image.channel(1) : nullptr;
+    const float* b_ptr = (out.data_channels >= 3) ? image.channel(2) : nullptr;
+    const float* a_ptr = (out.data_channels >= 4) ? image.channel(3) : nullptr;
 
-    for (int t = 0; t < input.grid_size.w; t++) {
-      for (int z = 0; z < input.grid_size.z; z++) {
-        // Create the source texture
-        CMP_Texture srcTexture;
-        srcTexture.dwSize = sizeof(srcTexture);                                     // Size of this structure.
-        srcTexture.dwWidth = input.grid_size.x;                                          // Width of the texture.
-        srcTexture.dwHeight = input.grid_size.y;                                         // Height of the texture.
-        srcTexture.dwPitch = srcTexture.dwWidth * input.data_channels * sizeof(float);   // Distance to start of next line,
-        switch (input.data_channels) {                                                   // Format of the texture.
-        case 1:
-          srcTexture.format = CMP_FORMAT_R_32F;
-          break;
-        case 2:
-          srcTexture.format = CMP_FORMAT_RG_32F;
-          break;
-        case 3:
-          srcTexture.format = CMP_FORMAT_RGB_32F;
-          break;
-        case 4:
-          srcTexture.format = CMP_FORMAT_RGBA_32F;
-        }
-        srcTexture.dwDataSize = CMP_CalculateBufferSize(&srcTexture);   // Size of the current pData texture data
-        srcTexture.pData = (CMP_BYTE*)(input.data.data() + t * z * srcTexture.dwPitch + z * srcTexture.dwPitch);
+    out.data.resize(out.data_size);
+    for (auto p = 0; p < out.grid_size.x * out.grid_size.y * out.grid_size.z * out.grid_size.w; p++) {
+      out.data[p * out.data_channels + 0] = r_ptr[p];
+      out.data[p * out.data_channels + 1] = g_ptr[p];
+      out.data[p * out.data_channels + 2] = b_ptr[p];
 
-        // Init dest memory to use for compressed texture
-        CMP_Texture destTexture;
-        destTexture.dwSize = sizeof(destTexture);
-        destTexture.dwWidth = srcTexture.dwWidth;
-        destTexture.dwHeight = srcTexture.dwHeight;
-        destTexture.dwPitch = std::max(1U, ((destTexture.dwWidth + 3) / 4)) * 4;
-        destTexture.format = CMP_FORMAT_ARGB_32F;
-
-        destTexture.dwDataSize = CMP_CalculateBufferSize(&destTexture);
-        out.data.resize(destTexture.dwDataSize * input.grid_size.w * input.grid_size.z);
-        destTexture.pData = (uint8_t*)(out.data.data()) + t * z * destTexture.dwDataSize + z * destTexture.dwDataSize;
-
-        CMP_ERROR   cmp_status;
-        cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, NULL, &CompressionCallback);
-        if (cmp_status != CMP_OK) {
-          std::printf("Compression returned an error %d\n", cmp_status);
-          return {};
-        }
-
-        out.data_size += destTexture.dwDataSize;
+      if (a_ptr) {
+        out.data[p * out.data_channels + 3] = a_ptr[p];
       }
     }
 
     return out;
   }
-
-  Texture<uint8_t> Encoder::compress_bc7(const BC7_options& options, const ldr_image& input) {
-  // Output structure
-  auto out = Texture<uint8_t>{};
-  out.grid_size = { input.size.x, input.size.y, 1, 1 };
-  out.gl_type = TEXPRESS_UINT;
-  out.enc_blocksize = { 4, 4, 1 };
-  out.gl_internalFormat = TEXPRESS_BC7;
-  out.gl_pixelFormat = gl_pixel(input.channels);
-
-  // Load the source texture
-  CMP_Texture srcTexture;
-  srcTexture.dwSize = sizeof(srcTexture);                                     // Size of this structure.
-  srcTexture.dwWidth = input.size.x;                                          // Width of the texture.
-  srcTexture.dwHeight = input.size.y;                                         // Height of the texture.
-  srcTexture.dwPitch = srcTexture.dwWidth * input.channels * sizeof(uint8_t); // Distance to start of next line,
-  switch (input.channels) {                                                   // Format of the texture.
-  case 1:
-    srcTexture.format = CMP_FORMAT_R_8;
-    break;
-  case 2:
-    srcTexture.format = CMP_FORMAT_RG_8;
-    break;
-  case 3:
-    srcTexture.format = CMP_FORMAT_RGB_888;
-    break;
-  case 4:
-    srcTexture.format = CMP_FORMAT_RGBA_8888;
-  }
-  srcTexture.dwDataSize = CMP_CalculateBufferSize(&srcTexture);   // Size of the current pData texture data
-  srcTexture.pData = (CMP_BYTE*)input.data.data();    // Pointer to the texture data to process, this can be the
-
-  // Init dest memory to use for compressed texture
-  CMP_Texture destTexture;
-  destTexture.dwSize = sizeof(destTexture);
-  destTexture.dwWidth = srcTexture.dwWidth;
-  destTexture.dwHeight = srcTexture.dwHeight;
-  //destTexture.dwPitch = srcTexture.dwWidth;
-  destTexture.dwPitch = std::max(1U, ((destTexture.dwWidth + 3) / 4)) * 4;
-  destTexture.format = CMP_FORMAT_BC7;
-  destTexture.dwDataSize = CMP_CalculateBufferSize(&destTexture);
-  out.data_size = destTexture.dwDataSize;
-  destTexture.pData = out.data.data();
-
-  CMP_CompressOptions cmp_options = { 0 };
-  cmp_options.dwSize = sizeof(cmp_options);
-  cmp_options.fquality = options.quality;
-  cmp_options.dwnumThreads = options.threads;
-  cmp_options.brestrictAlpha = options.restrictAlpha;
-  cmp_options.brestrictColour = options.restrictColor;
-  cmp_options.dwmodeMask = options.modeMask;
-
-  CMP_ERROR   cmp_status;
-  cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, &cmp_options, &CompressionCallback);
-  if (cmp_status != CMP_OK) {
-    std::printf("Compression returned an error %d\n", cmp_status);
-    return {};
-  }
-
-  return out;
-}
-
-  Texture<uint8_t> Encoder::compress_bc6h_legacy(const hdr_image& input) {
-  // Parameters
-  CMP_BC6H_BLOCK_PARAMETERS parameters;
-  parameters.dwMask = 0xFFFF;   // default
-  parameters.fExposure = 1.00;  // default
-  parameters.bIsSigned = true;  // signed or unsigned half float (BC6H_UF16 / BC6H_SF16)
-  parameters.fQuality = 0.05;          // quality
-  parameters.bUsePatternRec = false;    // not used
-
-  // Output structure
-  auto out = Texture<uint8_t>{};
-  out.grid_size = { input.size.x, input.size.y, 1, 1 };
-  out.gl_type = TEXPRESS_FLOAT;
-  out.enc_blocksize = { 4, 4, 1 };
-
-  // Load the source texture
-  CMP_Texture srcTexture;
-  srcTexture.dwSize = sizeof(srcTexture);                                     // Size of this structure.
-  srcTexture.dwWidth = input.size.x;                                          // Width of the texture.
-  srcTexture.dwHeight = input.size.y;                                         // Height of the texture.
-  srcTexture.dwPitch = srcTexture.dwWidth * input.channels * sizeof(float);   // Distance to start of next line,
-  switch (input.channels) {                                                   // Format of the texture.
-  case 1:
-    srcTexture.format = CMP_FORMAT_R_32F;
-    break;
-  case 2:
-    srcTexture.format = CMP_FORMAT_RG_32F;
-    break;
-  case 3:
-    srcTexture.format = CMP_FORMAT_RGB_32F;
-    break;
-  case 4:
-    srcTexture.format = CMP_FORMAT_RGBA_32F;
-  }
-  srcTexture.dwDataSize = CMP_CalculateBufferSize(&srcTexture);   // Size of the current pData texture data
-  srcTexture.pData = (CMP_BYTE*)input.data.data();    // Pointer to the texture data to process, this can be the
-
-    // Init dest memory to use for compressed texture
-  CMP_Texture destTexture;
-  destTexture.dwSize = sizeof(destTexture);
-  destTexture.dwWidth = srcTexture.dwWidth;
-  destTexture.dwHeight = srcTexture.dwHeight;
-  destTexture.dwPitch = std::max(1U, ((destTexture.dwWidth + 3) / 4)) * 4;
-  destTexture.format = CMP_FORMAT_BC6H_SF;
-  destTexture.dwDataSize = CMP_CalculateBufferSize(&destTexture);
-  destTexture.pData = new CMP_BYTE[destTexture.dwDataSize];
-
-  BC_ERROR   cmp_status;
-  if (destTexture.format == CMP_FORMAT_BC6H_SF) {
-
-    // Step 1: Initialize the Codec: Need to call it only once, repeated calls will return BC_ERROR_LIBRARY_ALREADY_INITIALIZED
-    if (CMP_InitializeBCLibrary() != BC_ERROR_NONE) {
-      std::printf("BC Codec already initialized!\n");
-    }
-
-    // Step 2: Create a BC6H Encoder
-    BC6HBlockEncoder* BC6HEncoder;
-
-    // Note we are setting parameters
-    CMP_CreateBC6HEncoder(parameters, &BC6HEncoder);
-
-    // Pointer to source data
-    CMP_BYTE* pdata = (CMP_BYTE*)srcTexture.pData;
-
-    const CMP_DWORD dwBlocksX = ((srcTexture.dwWidth + 3) >> 2);
-    const CMP_DWORD dwBlocksY = ((srcTexture.dwHeight + 3) >> 2);
-    const CMP_DWORD dwBlocksXY = dwBlocksX * dwBlocksY;
-    out.enc_blocksize = { 4, 4, 1 };
-
-    CMP_DWORD dstIndex = 0;    // Destination block index
-    CMP_DWORD srcStride = srcTexture.dwWidth * 4;
-
-    // Step 4: Process the blocks
-    for (CMP_DWORD yBlock = 0; yBlock < dwBlocksY; yBlock++) {
-
-      for (CMP_DWORD xBlock = 0; xBlock < dwBlocksX; xBlock++) {
-
-        // Source block index start base: top left pixel of the 4x4 block
-        CMP_DWORD srcBlockIndex = (yBlock * srcStride * 4) + xBlock * 16;
-
-        // Get a input block of data to encode
-        CMP_FLOAT blockToEncode[16][4];
-        CMP_DWORD srcIndex;
-        for (int row = 0; row < 4; row++) {
-          srcIndex = srcBlockIndex + (srcStride * row);
-          for (int col = 0; col < 4; col++) {
-            blockToEncode[row * 4 + col][BC_COMP_RED] = (CMP_FLOAT) * (pdata + srcIndex++);
-            blockToEncode[row * 4 + col][BC_COMP_GREEN] = (CMP_FLOAT) * (pdata + srcIndex++);
-            blockToEncode[row * 4 + col][BC_COMP_BLUE] = (CMP_FLOAT) * (pdata + srcIndex++);
-            blockToEncode[row * 4 + col][BC_COMP_ALPHA] = (CMP_FLOAT) * (pdata + srcIndex++);
-          }
-        }
-
-        // Call the block encoder : output is 128 bit compressed data
-        cmp_status = CMP_EncodeBC6HBlock(BC6HEncoder, blockToEncode, (destTexture.pData + dstIndex));
-        if (cmp_status != BC_ERROR_NONE) {
-          std::printf(
-            "Compression error at block X = %d Block Y = %d \n", xBlock, yBlock);
-        }
-        dstIndex += 16;
-
-        // Show Progress
-        float fProgress = 100.f * (yBlock * dwBlocksX) / dwBlocksXY;
-
-        std::printf("\rCompression progress = %3.0f", fProgress);
-      }
-    }
-
-    // Step 5 Free up the BC6H Encoder
-    CMP_DestroyBC6HEncoder(BC6HEncoder);
-
-    // Step 6 Close the BC Codec
-    CMP_ShutdownBCLibrary();
-  }
-
-  out.data = std::vector<uint8_t>(destTexture.pData, destTexture.pData + destTexture.dwDataSize);
-  out.data_size = destTexture.dwDataSize;
-
-  delete destTexture.pData;
-
-  return out;
-}
-
-Texture<uint8_t> Encoder::compress_bc7_legacy(const ldr_image& input) {
-  // Parameters
-  double quality = 0.05;        // Quality set to low
-  CMP_BOOL restrictColour = 0;  // Do not restrict colors
-  CMP_BOOL restrictAlpha = 0;   // Do not restrict alpha
-  CMP_DWORD modeMask = 0xFF;    // Use all BC7 modes
-  double performance = 1;       // Performance set to optimal
-
-  // Output structure
-  auto out = Texture<uint8_t>{};
-  out.grid_size = { input.size.x, input.size.y, 1, 1 };
-  out.gl_type = TEXPRESS_UINT;
-  out.enc_blocksize = { 4, 4, 1 };
-
-  // Load the source texture
-  CMP_Texture srcTexture;
-  srcTexture.dwSize = sizeof(srcTexture);                                     // Size of this structure.
-  srcTexture.dwWidth = input.size.x;                                          // Width of the texture.
-  srcTexture.dwHeight = input.size.y;                                         // Height of the texture.
-  srcTexture.dwPitch = srcTexture.dwWidth * input.channels * sizeof(uint8_t); // Distance to start of next line,
-  switch (input.channels) {                                                   // Format of the texture.
-  case 1:
-    srcTexture.format = CMP_FORMAT_R_8;
-    break;
-  case 2:
-    srcTexture.format = CMP_FORMAT_RG_8;
-    break;
-  case 3:
-    srcTexture.format = CMP_FORMAT_RGB_888;
-    break;
-  case 4:
-    srcTexture.format = CMP_FORMAT_RGBA_8888;
-  }
-  srcTexture.dwDataSize = CMP_CalculateBufferSize(&srcTexture);   // Size of the current pData texture data
-  srcTexture.pData = (CMP_BYTE*)input.data.data();    // Pointer to the texture data to process, this can be the
-
-  // Init dest memory to use for compressed texture
-  CMP_Texture destTexture;
-  destTexture.dwSize = sizeof(destTexture);
-  destTexture.dwWidth = srcTexture.dwWidth;
-  destTexture.dwHeight = srcTexture.dwHeight;
-  destTexture.dwPitch = std::max(1U, ((destTexture.dwWidth + 3) / 4)) * 4;
-  destTexture.format = CMP_FORMAT_BC7;
-  destTexture.dwDataSize = CMP_CalculateBufferSize(&destTexture);
-  destTexture.pData = new CMP_BYTE[destTexture.dwDataSize];
-
-  BC_ERROR   cmp_status;
-  if (destTexture.format == CMP_FORMAT_BC7) {
-
-    // Step 1: Initialize the Codec: Need to call it only once, repeated calls will return BC_ERROR_LIBRARY_ALREADY_INITIALIZED
-    if (CMP_InitializeBCLibrary() != BC_ERROR_NONE) {
-      std::printf("BC Codec already initialized!\n");
-    }
-
-    // Step 2: Create a BC7 Encoder
-    BC7BlockEncoder* BC7Encoder;
-
-    // Note we are setting quality low for faster encoding in this sample
-    CMP_CreateBC7Encoder(
-      quality,
-      restrictColour,
-      restrictAlpha,
-      modeMask,
-      performance,
-      &BC7Encoder);
-
-    // Pointer to source data
-    CMP_BYTE* pdata = (CMP_BYTE*)srcTexture.pData;
-
-    const CMP_DWORD dwBlocksX = ((srcTexture.dwWidth + 3) >> 2);
-    const CMP_DWORD dwBlocksY = ((srcTexture.dwHeight + 3) >> 2);
-    const CMP_DWORD dwBlocksXY = dwBlocksX * dwBlocksY;
-    out.enc_blocksize = { 4, 4, 1 };
-
-    CMP_DWORD dstIndex = 0;    // Destination block index
-    CMP_DWORD srcStride = srcTexture.dwWidth * 4;
-
-    // Step 4: Process the blocks
-    for (CMP_DWORD yBlock = 0; yBlock < dwBlocksY; yBlock++) {
-
-      for (CMP_DWORD xBlock = 0; xBlock < dwBlocksX; xBlock++) {
-
-        // Source block index start base: top left pixel of the 4x4 block
-        CMP_DWORD srcBlockIndex = (yBlock * srcStride * 4) + xBlock * 16;
-
-        // Get a input block of data to encode
-        // Currently the BC7 encoder is using double data formats
-        double blockToEncode[16][4];
-        CMP_DWORD srcIndex;
-        for (int row = 0; row < 4; row++) {
-          srcIndex = srcBlockIndex + (srcStride * row);
-          for (int col = 0; col < 4; col++) {
-            blockToEncode[row * 4 + col][BC_COMP_RED] = (double)*(pdata + srcIndex++);
-            blockToEncode[row * 4 + col][BC_COMP_GREEN] = (double)*(pdata + srcIndex++);
-            blockToEncode[row * 4 + col][BC_COMP_BLUE] = (double)*(pdata + srcIndex++);
-            blockToEncode[row * 4 + col][BC_COMP_ALPHA] = (double)*(pdata + srcIndex++);
-          }
-        }
-
-        // Call the block encoder : output is 128 bit compressed data
-        cmp_status = CMP_EncodeBC7Block(BC7Encoder, blockToEncode, (destTexture.pData + dstIndex));
-        if (cmp_status != BC_ERROR_NONE) {
-          std::printf(
-            "Compression error at block X = %d Block Y = %d \n", xBlock, yBlock);
-        }
-        dstIndex += 16;
-
-        // Show Progress
-        float fProgress = 100.f * (yBlock * dwBlocksX) / dwBlocksXY;
-
-        std::printf("\rCompression progress = %3.0f", fProgress);
-      }
-    }
-
-    // Step 5 Free up the BC7 Encoder
-    CMP_DestroyBC7Encoder(BC7Encoder);
-
-    // Step 6 Close the BC Codec
-    CMP_ShutdownBCLibrary();
-  }
-
-  out.data = std::vector<uint8_t>(destTexture.pData, destTexture.pData + destTexture.dwDataSize);
-  out.data_size = destTexture.dwDataSize;
-
-  delete destTexture.pData;
-
-  return out;
-}
 }

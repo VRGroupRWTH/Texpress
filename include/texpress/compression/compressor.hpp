@@ -1,36 +1,39 @@
 #pragma once
 #include <texpress/export.hpp>
+#include <texpress/defines.hpp>
+#include <texpress/compression/compressor_defines.hpp>
+
 #include <texpress/core/system.hpp>
 #include <texpress/events/event.hpp>
-#include <texpress/defines.hpp>
-#include <texpress/types/image.hpp>
 #include <texpress/types/texture.hpp>
-#include <texpress/types/regular_grid.hpp>
 
-#include <glbinding/gl45core/enum.h>
-#include <texpress/compression/compressor_defines.hpp>
-#include <glm/vec3.hpp>
-#include <fp16.h>
+#include <nvtt/nvtt.h>
+#include <glm/vec4.hpp>
 
 namespace texpress
 {
-  struct TEXPRESS_EXPORT BC6H_options {
-    float quality = 0.05;       // ignored for BC6H?
-    uint8_t threads = 0;
-    bool signed_data = true;
+  struct TEXPRESS_EXPORT EncoderData {
+    uint32_t gl_internal = 0;       // OpenGL internalformat, https://registry.khronos.org/OpenGL-Refpages/gl4/html/glTexImage2D.xhtml
+    uint32_t gl_format = 0;         // OpenGL format, https://registry.khronos.org/OpenGL-Refpages/gl4/html/glTexImage2D.xhtml
+    uint32_t dim_x = 0;             // Extents of each dimension
+    uint32_t dim_y = 0;
+    uint32_t dim_z = 0;
+    uint32_t dim_t = 0;
+    uint8_t channels = 0;           // Number of colorchannels
+    uint64_t data_bytes = 0;        // Size of buffer, should be: dim_x * dim_y * dim_z * dim_t * channels * sizeof(Type)
+    uint8_t* data_ptr = nullptr;    // Data to be read from or written to
   };
 
-  struct TEXPRESS_EXPORT BC7_options {
-    float quality = 0.05;
-    uint8_t threads = 0;
-    bool restrictColor = false;
-    bool restrictAlpha = false;
-    uint8_t modeMask = 0xFF;
+  struct TEXPRESS_EXPORT EncoderSettings{
+    bool use_weights = false;                                 // If true colorchannels are weighted differently to estimate compression error
+    float red_weight = 1.0;                                   // Weights of each channel
+    float green_weight = 1.0;
+    float blue_weight = 1.0;
+    float alpha_weight = 1.0;
+    nvtt::Quality quality = nvtt::Quality::Quality_Fastest;   // Encoding quality, for BC6H only "Fastest" and "Normal" are available
+    nvtt::Format encoding = nvtt::Format::Format_BC6S;        // Target encoding
+    int* progress_ptr = nullptr;                            // Use this if you want to display compression progress else than in console
   };
-
-  ldr_image TEXPRESS_EXPORT fit_blocksize(glm::ivec2 blocksize, const ldr_image& input);
-  hdr_image TEXPRESS_EXPORT fit_blocksize(glm::ivec2 blocksize, const hdr_image& input);
-
 
   class TEXPRESS_EXPORT Encoder : public system
   {
@@ -42,83 +45,15 @@ namespace texpress
     Encoder& operator=(const Encoder& that) = delete;
     Encoder& operator=(Encoder&& temp) = delete;
 
-  public:
     void listener(const Event& e);
 
   public:
-    Texture<uint8_t> compress_bc6h(const BC6H_options& options, const hdr_image& input);
-    Texture<uint8_t> compress_bc6h(const BC6H_options& options, const Texture<float>& input);
+    uint64_t estimate_size(const EncoderSettings& settings, const EncoderData& input);
+
+    bool compress(const EncoderSettings& settings, const EncoderData& input, EncoderData& output);
+    bool decompress(const EncoderData& input, EncoderData& output);
+
     Texture<uint8_t> compress_bc6h_nvtt(const Texture<float>& input);
-    std::vector<Texture<uint8_t>> compress_bc6h(const BC6H_options& options, const std::vector<Texture<float>>& input);
-    Texture<float> decompress_bc6h(const Texture<uint8_t>& input);
     Texture<float> decompress_bc6h_nvtt(const Texture<uint8_t>& input);
-
-    Texture<uint8_t> compress_bc7(const BC7_options& options, const ldr_image& input);
-
-    Texture<float> to_ARGB(const Texture<float>& input);
-
-    Texture<uint8_t> compress_bc6h_legacy(const hdr_image& input);
-    Texture<uint8_t> compress_bc7_legacy(const ldr_image& input);
-
-  public:
-
-    template <typename T>
-    std::vector<uint16_t> convert_to_f16(uint64_t offset, const std::vector<T>& input) {
-      /*
-      std::vector<uint16_t> f16(input.size() - offset);
-      for (uint64_t i = offset; i < input.size(); i++) {
-        f16[i] = fp16_ieee_from_fp32_value(static_cast<float>(input[i]));
-      }
-
-      return f16;
-      */
-
-      return convert_to_f16<T>(input.size() * sizeof(T), offset * sizeof(T), input.data());
-
-    }
-
-    template <typename T>
-    void convert_to_f16(uint64_t size_bytes, uint64_t offset_bytes, const T* input, uint16_t* output) {
-      uint64_t elements = size_bytes / sizeof(T);
-      uint64_t skip_elements = offset_bytes / sizeof(T);
-      uint64_t proc_elements = elements - skip_elements;
-
-      // Delete any allocated data and reallocate
-      delete[] output;
-      output = new uint16_t[proc_elements];
-      for (uint64_t i = 0; i < proc_elements; i++) {
-        output[i] = fp16_ieee_from_fp32_value(static_cast<float>(*(input + skip_elements + i)));
-      }
-    }
-
-    template <typename T>
-    std::vector<T> convert_from_f16(uint64_t offset, const std::vector<uint16_t>& input) {
-      /*
-      std::vector<uint16_t> values(input.size() - offset);
-      for (uint64_t i = offset; i < input.size(); i++) {
-        values[i] = fp16_ieee_to_fp32_value(input[i]);
-      }
-
-      return values;
-      */
-
-      return convert_from_f16<T>(input.size() * sizeof(uint16_t), offset * sizeof(uint16_t), input.data());
-    }
-
-    template <typename T>
-    void convert_from_f16(uint64_t size_bytes, uint64_t offset_bytes, const uint16_t* input, T* output) {
-      uint64_t elements = size_bytes / sizeof(uint16_t);
-      uint64_t skip_elements = offset_bytes / sizeof(uint16_t);
-      uint64_t proc_elements = elements - skip_elements;
-
-      // Delete any allocated data and reallocate
-      delete[] output;
-      output = new T[proc_elements];
-      for (uint64_t i = 0; i < proc_elements; i++) {
-        output[i] = fp16_ieee_to_fp32_value(*(input + skip_elements + i));
-      }
-
-      return values;
-    }
   };
 }

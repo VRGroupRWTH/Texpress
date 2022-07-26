@@ -98,6 +98,68 @@ import_library(tinygltf_INCLUDE_DIRS)
 find_package  (tinyexr CONFIG REQUIRED)
 list          (APPEND PROJECT_LIBRARIES unofficial::tinyexr::tinyexr)
 
+set(nvtt_NAME_HINT CACHE STRING "Set additional names for the nvidia texture tools library to look for")
+set(nvtt_PATH_HINT "C:/Program Files/NVIDIA Corporation/NVIDIA Texture Tools" CACHE STRING "Set additional paths for the nvidia texture tools library to look for")
+
+find_library(nvtt_LIBRARY
+  NAMES
+    "nvtt30106"
+    ${nvtt_NAME_HINT}
+  PATHS
+    /usr/local
+    /usr
+    $ENV{NVTT_DIR}
+    ${3rdPartyRoot}
+    ${PROJECT_BINARY_DIR}/prebuilt/
+    HINTS
+    ${nvtt_PATH_HINT}
+    ${nvtt_PATH_HINT}/lib
+    ${nvtt_PATH_HINT}/lib64
+  PATH_SUFFIXES
+    lib64 lib lib/shared lib/static lib64/static
+    x64-v142 x64-v143 x64-v144 x64-v145 x64-v146
+    ${LIBRARY_SUFFIXES}
+  REGISTRY_VIEW
+)
+
+find_path(nvtt_INCLUDE_DIR
+  NAMES
+    nvtt/nvtt.h
+    nvtt/nvtt_lowlevel.h
+    nvtt/nvtt_wrapper.h
+  PATHS
+    "C:/Program Files/NVIDIA Corporation/NVIDIA Texture Tools"
+    /usr/local
+    /usr
+    $ENV{NVTT_DIR}
+    ${3rdPartyRoot}
+    ${CMAKE_INSTALL_INCLUDEDIR}
+  HINTS
+    ${nvtt_PATH_HINT}
+    ${nvtt_PATH_HINT}/include
+  PATH_SUFFIXES
+)
+
+find_file(nvtt_DLL
+  NAMES
+    "nvtt30106"
+    ${nvtt_NAME_HINT}
+  PATHS
+    "C:/Program Files/NVIDIA Corporation/NVIDIA Texture Tools"
+    /usr/local
+    /usr
+    $ENV{NVTT_DIR}
+    ${3rdPartyRoot}
+    ${CMAKE_INSTALL_INCLUDEDIR}
+  HINTS
+    ${nvtt_PATH_HINT}
+    ${nvtt_PATH_HINT}/include
+  PATH_SUFFIXES
+)
+
+list (APPEND PROJECT_LIBRARIES ${nvtt_LIBRARY})
+list (APPEND PROJECT_INCLUDE_DIRS ${nvtt_INCLUDE_DIR})
+
 
 ##################################################    Targets     ##################################################
 add_library(${PROJECT_NAME} ${PROJECT_FILES})

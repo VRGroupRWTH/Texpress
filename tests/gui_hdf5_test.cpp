@@ -35,10 +35,11 @@ struct update_pass : texpress::render_pass
     , offset_x(0)
     , offset_y(0)
     , offset_z(0)
-    , texIn(globjects::Texture::createDefault())
-    , texOut(globjects::Texture::createDefault())
+    , texIn(nullptr)
+    , texOut(nullptr)
     , hdf5_file(nullptr)
     , hdf5_data()
+    , image_level(0)
   {
     on_prepare = [&] ( )
     {
@@ -168,6 +169,8 @@ struct update_pass : texpress::render_pass
           hdf5_data.gl_internalFormat = gl::GLenum::GL_RGBA32F;
           hdf5_data.gl_pixelFormat = gl::GLenum::GL_RGBA;
           hdf5_data.gl_type = gl::GLenum::GL_FLOAT;
+
+          texIn = globjects::Texture::createDefault();
           texIn->image2D(0, hdf5_data.gl_internalFormat, hdf5_data.grid_size, 0, hdf5_data.gl_pixelFormat, hdf5_data.gl_type, hdf5_data.data.data());
 
           configuration_changed = false;
@@ -175,12 +178,20 @@ struct update_pass : texpress::render_pass
 
 
         if (ImGui::Button("Compress BC6H") && !hdf5_data.data.empty()) {
-          hdf5_encoded = encoder->compress_bc6h(texpress::BC6H_options(), hdf5_data);
+          hdf5_encoded = encoder->compress_bc6h_nvtt(hdf5_data);
+
+          if (!texOut) {
+            texOut = globjects::Texture::createDefault();
+          }
           texOut->compressedImage2D(0, hdf5_encoded.gl_internalFormat, glm::ivec2(hdf5_encoded.grid_size), 0, hdf5_encoded.data_size / hdf5_encoded.grid_size.z, hdf5_encoded.data.data());
         }
 
         if (ImGui::Button("Decompress BC6H") && !hdf5_encoded.data.empty()) {
-          hdf5_decoded = encoder->decompress_bc6h(texpress::BC6H_options(), hdf5_encoded);
+          hdf5_decoded = encoder->decompress_bc6h_nvtt(hdf5_encoded);
+          if (!texOut) {
+            texOut = globjects::Texture::createDefault();
+          }
+
           texOut->image2D(0, hdf5_decoded.gl_internalFormat, hdf5_decoded.grid_size, 0, hdf5_decoded.gl_pixelFormat, hdf5_decoded.gl_type, hdf5_decoded.data.data());
 
           configuration_changed = false;
@@ -193,6 +204,9 @@ struct update_pass : texpress::render_pass
 
         if (ImGui::Button("Load Source KTX")) {
           hdf5_data = texpress::load_ktx<float>("source_data_test.ktx");
+          if (!texOut) {
+            texOut = globjects::Texture::createDefault();
+          }
           texOut->image2D(0, hdf5_data.gl_internalFormat, hdf5_data.grid_size, 0, hdf5_data.gl_pixelFormat, hdf5_data.gl_type, hdf5_data.data.data());
         }
 
@@ -203,6 +217,10 @@ struct update_pass : texpress::render_pass
 
         if (ImGui::Button("Load Compressed KTX")) {
           hdf5_encoded = texpress::load_ktx<uint8_t>("enc_data_test.ktx");
+          if (!texOut) {
+            texOut = globjects::Texture::createDefault();
+          }
+
           texOut->compressedImage2D(0, hdf5_encoded.gl_internalFormat, glm::ivec2(hdf5_encoded.grid_size), 0, hdf5_encoded.data_size / hdf5_encoded.grid_size.z, hdf5_encoded.data.data());
         }
 
@@ -212,6 +230,10 @@ struct update_pass : texpress::render_pass
 
         if (ImGui::Button("Load Decoded KTX")) {
           hdf5_decoded = texpress::load_ktx<float>("dec_data_test.ktx");
+          if (!texOut) {
+            texOut = globjects::Texture::createDefault();
+          }
+
           texOut->image2D(0, hdf5_decoded.gl_internalFormat, hdf5_decoded.grid_size, 0, hdf5_decoded.gl_pixelFormat, hdf5_decoded.gl_type, hdf5_decoded.data.data());
         }
 
@@ -285,11 +307,19 @@ struct update_pass : texpress::render_pass
 
         ImGui::Text("Input Image");
         if (texIn) {
+          texIn->image2D(0, hdf5_data.gl_internalFormat, hdf5_data.grid_size, 0, hdf5_data.gl_pixelFormat, hdf5_data.gl_type, hdf5_data.data.data() + image_level * (hdf5_data.grid_size.x * hdf5_data.grid_size.y * hdf5_data.data_channels));
+          image_level += 1;
+
+          if (image_level == hdf5_data.grid_size.z - 1) {
+            image_level = 0;
+          }
           ImTextureID texID = ImTextureID(texIn->id());
           ImGui::Image(texID, ImVec2(500, 500), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
         }
         ImGui::SameLine(); ImGui::Text("Output Image"); ImGui::SameLine();
         if (texOut) {
+          texOut->compressedImage2D(0, hdf5_encoded.gl_internalFormat, glm::ivec2(hdf5_encoded.grid_size), 0, hdf5_encoded.data_size / hdf5_encoded.grid_size.z, hdf5_encoded.data.data() + image_level * (hdf5_encoded.data_size / hdf5_encoded.grid_size.z));
+
           ImTextureID texID = ImTextureID(texOut->id());
           ImGui::Image(texID, ImVec2(500, 500), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
         }
@@ -335,6 +365,8 @@ struct update_pass : texpress::render_pass
   int offset_y;
   int offset_z;
   bool configuration_changed;
+
+  uint64_t image_level;
 };
 
 TEST_CASE("GUI test.", "[texpress::gui]")
