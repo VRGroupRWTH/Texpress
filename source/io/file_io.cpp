@@ -3,14 +3,9 @@
 #include <fstream>
 #include <spdlog/spdlog.h>
 
-bool texpress::file_exists(const char* path, FileType type) {
+bool texpress::file_exists(const char* path) {
   // Default: open file at the end of file
   std::ios::ios_base::openmode file_mode = std::ios::in;
-
-  // Bbinary data
-  if (type == FileType::FILE_BINARY) {
-    file_mode |= std::ios::binary;
-  }
 
   // Open file
   std::ifstream file;
@@ -25,14 +20,9 @@ bool texpress::file_exists(const char* path, FileType type) {
   return true;
 }
 
-uint64_t texpress::file_size(const char* path, FileType type) {
+uint64_t texpress::file_size(const char* path) {
   // Default: open file at the end of file
   std::ios::ios_base::openmode file_mode = std::ios::in | std::ios::ate;
-
-  // Bbinary data
-  if (type == FileType::FILE_BINARY) {
-    file_mode |= std::ios::binary;
-  }
 
   // Open file
   std::ifstream file;

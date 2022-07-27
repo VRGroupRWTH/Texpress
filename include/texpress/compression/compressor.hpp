@@ -6,9 +6,10 @@
 #include <texpress/core/system.hpp>
 #include <texpress/events/event.hpp>
 #include <texpress/types/texture.hpp>
+#include <texpress/types/image.hpp>
 
 #include <nvtt/nvtt.h>
-#include <glm/vec4.hpp>
+#include <atomic>
 
 namespace texpress
 {
@@ -48,12 +49,29 @@ namespace texpress
     void listener(const Event& e);
 
   public:
-    uint64_t estimate_size(const EncoderSettings& settings, const EncoderData& input);
+    static uint64_t decoded_size(const EncoderData& input, bool hdr = true);
+    static uint64_t encoded_size(const EncoderSettings& settings, const EncoderData& input);
+    static bool populate_EncoderData(EncoderData& enc_data, Texture<float>& tex_input);
+    static bool populate_EncoderData(EncoderData& enc_data, Texture<uint8_t>& tex_input);
+    static bool populate_EncoderData(EncoderData& enc_data, image_ldr& img_input);
+    static bool populate_EncoderData(EncoderData& enc_data, image_hdr& img_input);
+
+    static bool populate_Texture(Texture<float>& tex, EncoderData& enc_data);
+    static bool populate_Texture(Texture<uint8_t>& tex, EncoderData& enc_data);
+
+    static bool populate_Image(image& img, EncoderData& enc_data);
 
     bool compress(const EncoderSettings& settings, const EncoderData& input, EncoderData& output);
     bool decompress(const EncoderData& input, EncoderData& output);
+    bool decompress(const nvtt::Format encoding, const EncoderData& input, EncoderData& output);
 
-    Texture<uint8_t> compress_bc6h_nvtt(const Texture<float>& input);
-    Texture<float> decompress_bc6h_nvtt(const Texture<uint8_t>& input);
+    //static Texture<uint8_t> compress_bc6h_nvtt(const Texture<float>& input);
+    //static Texture<float> decompress_bc6h_nvtt(const Texture<uint8_t>& input);
+
+  private:
+    static bool populate_EncoderData_base(EncoderData& enc_data, uint32_t dim_x, uint32_t dim_y, uint32_t dim_z, uint32_t dim_t, uint8_t channels, uint64_t data_bytes, uint8_t* data_ptr);
+
+  private:
+    std::atomic<bool> busy = false;
   };
 }

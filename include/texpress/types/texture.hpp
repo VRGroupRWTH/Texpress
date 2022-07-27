@@ -18,6 +18,8 @@ namespace texpress
     gl::GLenum gl_internalFormat; // internal format as glenum
     gl::GLenum gl_pixelFormat;
     glm::ivec3 enc_blocksize;     // extents of block dimensions (ignored for uncompressed)
+
+    uint64_t bytes() { return data.size() * sizeof(T); }
   };
 
   inline gl::GLenum gl_pixel(int channels) {

@@ -7,19 +7,24 @@
 
 namespace texpress
 {
-  struct ldr_image
+  struct image {
+    glm::ivec2 size;
+    int        channels;
+
+    virtual uint64_t bytes() = 0;
+  };
+
+  struct image_ldr : public image
   {
     std::vector<uint8_t> data;
-    glm::ivec2           size;
-    int                  channels;
+    
+    uint64_t bytes() { return data.size() * sizeof(uint8_t); }
   };
 
-  struct hdr_image
+  struct image_hdr : public image
   {
     std::vector<float> data;
-    glm::ivec2         size;
-    int                channels;
-  };
 
-  typedef ldr_image image;
+    uint64_t bytes() { return data.size() * sizeof(float); }
+  };
 }

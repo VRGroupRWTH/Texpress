@@ -8,24 +8,24 @@
 
 namespace texpress {
   template <typename T>
-  bool save_ktx(Texture<T> input, const char* path, bool as_texture_array = false, bool save_monolithic = false, glm::ivec4 range = glm::ivec4(0)) {
+  bool save_ktx(Texture<T> input, const char* path, bool as_texture_array = false, bool save_monolithic = false) {
     ktxTexture1* texture;
     ktxTextureCreateInfo createInfo;
     KTX_error_code result;
 
-    glm::ivec4 selected;
-    selected.x = (range.x == 0) ? std::max(input.grid_size.x, 1) : std::clamp(range.x, 1, input.grid_size.x);
-    selected.y = (range.y == 0) ? std::max(input.grid_size.y, 1) : std::clamp(range.y, 1, input.grid_size.y);
-    selected.z = (range.z == 0) ? std::max(input.grid_size.z, 1) : std::clamp(range.z, 1, input.grid_size.z);
-    selected.w = (range.w == 0) ? std::max(input.grid_size.w, 1) : std::clamp(range.w, 1, input.grid_size.w);
+    glm::ivec4 range;
+    range.x = std::max(input.grid_size.x, 1);
+    range.y = std::max(input.grid_size.y, 1);
+    range.z = std::max(input.grid_size.z, 1);
+    range.w = std::max(input.grid_size.w, 1);
 
     // Automatically a monolithic file if time-dim = 1
-    bool monolithic = save_monolithic || (selected.w == 1);
+    bool monolithic = save_monolithic || (range.w == 1);
 
     createInfo.glInternalformat = (ktx_uint32_t)input.gl_internalFormat;
-    createInfo.baseWidth = selected.x;
-    createInfo.baseHeight = selected.y;
-    createInfo.baseDepth = (monolithic) ? selected.z * selected.w : selected.z;
+    createInfo.baseWidth = range.x;
+    createInfo.baseHeight = range.y;
+    createInfo.baseDepth = (monolithic) ? range.z * range.w : range.z;
     createInfo.numDimensions = 3;
     createInfo.numLevels = 1;
     createInfo.numLayers = 1;
@@ -37,7 +37,7 @@ namespace texpress {
       createInfo.isArray = KTX_TRUE;
       createInfo.baseDepth = 1;
       createInfo.numDimensions = 2;
-      createInfo.numLayers = (monolithic) ? selected.z * selected.w : selected.z;
+      createInfo.numLayers = (monolithic) ? range.z * range.w : range.z;
     }
 
     result = ktxTexture1_Create(&createInfo,
@@ -48,17 +48,17 @@ namespace texpress {
       return false;
 
     // Each iteration produces a seperate file
-    uint64_t iterations = (monolithic) ? 1 : selected.w;
+    uint64_t iterations = (monolithic) ? 1 : range.w;
 
     if (as_texture_array) {
-      uint64_t slice_elements = selected.x * selected.y * input.data_channels;
+      uint64_t slice_elements = input.bytes() / (range.w * range.z * sizeof(T));
 
       for (uint64_t i = 0; i < iterations; i++) {
         for (uint32_t z = 0; z < createInfo.numLayers; z++) {
           ktx_size_t srcSize;
           uint8_t* src;
 
-          srcSize = slice_elements * sizeof(float);
+          srcSize = slice_elements * sizeof(T);
           src = reinterpret_cast<uint8_t*>(input.data.data() + i * createInfo.baseDepth * slice_elements + z * slice_elements);
 
           result = ktxTexture_SetImageFromMemory(ktxTexture(texture), 0, z, 0, src, srcSize);
@@ -67,20 +67,20 @@ namespace texpress {
             return false;
         }
 
-        std::string filepath = (monolithic) ? str_canonical(path, -1, -1) + ".ktx" : str_canonical(path, -1, i) + ".ktx";
+        std::string filepath = (monolithic) ? str_canonical(path, -1, -1) : str_canonical(path, -1, i);
         ktxTexture_WriteToNamedFile(ktxTexture(texture), filepath.c_str());
       }
     }
     else {
-      uint64_t volume_elements = selected.x * selected.y * selected.z * input.data_channels;
+      uint64_t volume_elements = input.bytes() / (range.w * sizeof(T));
       if (monolithic) {
-        volume_elements *= selected.w;
+        volume_elements *= range.w;
       }
 
       for (uint64_t i = 0; i < iterations; i++) {
         texture->pData = reinterpret_cast<uint8_t*>(input.data.data() + i * createInfo.baseDepth * volume_elements);
 
-        std::string filepath = (monolithic) ? str_canonical(path, -1, -1) + ".ktx" : str_canonical(path, -1, i) + ".ktx";
+        std::string filepath = (monolithic) ? str_canonical(path, -1, -1) : str_canonical(path, -1, i);
         ktxTexture_WriteToNamedFile(ktxTexture(texture), filepath.c_str());
       }
 
@@ -118,17 +118,11 @@ namespace texpress {
   template <typename T>
   Texture<T> load_ktx(const char* path) {
     ktxTexture1* texture;
-    ktxTexture2* texture2;
     KTX_error_code result;
 
     result = ktxTexture_CreateFromNamedFile(path,
       KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
       &ktxTexture(texture));
-
-    result = ktxTexture_CreateFromNamedFile(path,
-      KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
-      &ktxTexture(texture2));
-
 
     if (result)
       return { };
@@ -165,6 +159,7 @@ namespace texpress {
     }
 
     // Debug
+    /*
     for (uint64_t i = 0; i < texture->baseDepth * texture->numLayers;  i++) {
       std::cout << i << ":" << std::endl;
       for (int j = 0; j < 4; j++) {
@@ -178,7 +173,7 @@ namespace texpress {
       std::cout << std::endl;
       std::cout << std::endl;
     }
-
+    */
     ktxTexture_Destroy(ktxTexture(texture));
     return out;
   }

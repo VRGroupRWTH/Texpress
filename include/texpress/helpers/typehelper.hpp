@@ -5,7 +5,7 @@
 
 namespace texpress {
   template <typename T>
-  Texture<T> image_to_texture(image img) {
+  Texture<T> image_to_texture(image_ldr img) {
     Texture<T> tex{};
     tex.data.assign(img.data.begin(), img.data.end());
     tex.data_size = img.data.size() * sizeof(T);
@@ -23,7 +23,7 @@ namespace texpress {
   }
 
   template <typename T>
-  Texture<T> image_to_texture(hdr_image img) {
+  Texture<T> image_to_texture(image_hdr img) {
     Texture<T> tex{};
     tex.data.assign(img.data.begin(), img.data.end());
     tex.data_size = img.data.size() * sizeof(T);
@@ -42,8 +42,8 @@ namespace texpress {
   }
 
   template <typename T>
-  image texture_to_image(Texture<T> tex, int depth = 0, int time = 0, bool normalize = true) {
-    image img{};
+  image_ldr texture_to_image(Texture<T> tex, int depth = 0, int time = 0, bool normalize = true) {
+    image_ldr img{};
     img.channels = tex.data_channels;
     img.size.x = std::max(tex.grid_size.x, 1);
     img.size.y = std::max(tex.grid_size.y, 1);
@@ -68,8 +68,8 @@ namespace texpress {
   }
 
   template <typename T>
-  hdr_image texture_to_image_hdr(Texture<T> tex, int depth = 0, int time = 0, bool normalize = true) {
-    hdr_image img{};
+  image_hdr texture_to_image_hdr(Texture<T> tex, int depth = 0, int time = 0, bool normalize = true) {
+    image_hdr img{};
     img.channels = tex.data_channels;
     img.size.x = std::max(tex.grid_size.x, 1);
     img.size.y = std::max(tex.grid_size.y, 1);

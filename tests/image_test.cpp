@@ -179,8 +179,8 @@ void main()
   bool bc6h = true;
   bool show_tex_1 = true;
 
-  texpress::ldr_image image_in;
-  texpress::hdr_image imagef_in;
+  texpress::image_ldr image_in;
+  texpress::image_hdr imagef_in;
   texpress::Texture<uint8_t> image_out;
 
   texpress::Encoder* encoder;

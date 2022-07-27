@@ -82,9 +82,9 @@ list          (APPEND PROJECT_LIBRARIES spdlog::spdlog)
 #find_path     (FP16_INCLUDE_DIRS "fp16.h")
 #import_library(FP16_INCLUDE_DIRS)
 
-set           (Compressonator_SHARED TRUE)
-find_package  (Compressonator REQUIRED)
-list          (APPEND PROJECT_LIBRARIES Compressonator::Compressonator)
+#set           (Compressonator_SHARED TRUE)
+#find_package  (Compressonator REQUIRED)
+#list          (APPEND PROJECT_LIBRARIES Compressonator::Compressonator)
 
 find_package  (ktx REQUIRED)
 list          (APPEND PROJECT_LIBRARIES KTX::ktx)
@@ -98,67 +98,8 @@ import_library(tinygltf_INCLUDE_DIRS)
 find_package  (tinyexr CONFIG REQUIRED)
 list          (APPEND PROJECT_LIBRARIES unofficial::tinyexr::tinyexr)
 
-set(nvtt_NAME_HINT CACHE STRING "Set additional names for the nvidia texture tools library to look for")
-set(nvtt_PATH_HINT "C:/Program Files/NVIDIA Corporation/NVIDIA Texture Tools" CACHE STRING "Set additional paths for the nvidia texture tools library to look for")
-
-find_library(nvtt_LIBRARY
-  NAMES
-    "nvtt30106"
-    ${nvtt_NAME_HINT}
-  PATHS
-    /usr/local
-    /usr
-    $ENV{NVTT_DIR}
-    ${3rdPartyRoot}
-    ${PROJECT_BINARY_DIR}/prebuilt/
-    HINTS
-    ${nvtt_PATH_HINT}
-    ${nvtt_PATH_HINT}/lib
-    ${nvtt_PATH_HINT}/lib64
-  PATH_SUFFIXES
-    lib64 lib lib/shared lib/static lib64/static
-    x64-v142 x64-v143 x64-v144 x64-v145 x64-v146
-    ${LIBRARY_SUFFIXES}
-  REGISTRY_VIEW
-)
-
-find_path(nvtt_INCLUDE_DIR
-  NAMES
-    nvtt/nvtt.h
-    nvtt/nvtt_lowlevel.h
-    nvtt/nvtt_wrapper.h
-  PATHS
-    "C:/Program Files/NVIDIA Corporation/NVIDIA Texture Tools"
-    /usr/local
-    /usr
-    $ENV{NVTT_DIR}
-    ${3rdPartyRoot}
-    ${CMAKE_INSTALL_INCLUDEDIR}
-  HINTS
-    ${nvtt_PATH_HINT}
-    ${nvtt_PATH_HINT}/include
-  PATH_SUFFIXES
-)
-
-find_file(nvtt_DLL
-  NAMES
-    "nvtt30106"
-    ${nvtt_NAME_HINT}
-  PATHS
-    "C:/Program Files/NVIDIA Corporation/NVIDIA Texture Tools"
-    /usr/local
-    /usr
-    $ENV{NVTT_DIR}
-    ${3rdPartyRoot}
-    ${CMAKE_INSTALL_INCLUDEDIR}
-  HINTS
-    ${nvtt_PATH_HINT}
-    ${nvtt_PATH_HINT}/include
-  PATH_SUFFIXES
-)
-
-list (APPEND PROJECT_LIBRARIES ${nvtt_LIBRARY})
-list (APPEND PROJECT_INCLUDE_DIRS ${nvtt_INCLUDE_DIR})
+find_package   (NVTT REQUIRED)
+list           (APPEND PROJECT_LIBRARIES NVTT::NVTT)
 
 
 ##################################################    Targets     ##################################################
@@ -177,6 +118,19 @@ if(NOT BUILD_SHARED_LIBS)
   string               (TOUPPER ${PROJECT_NAME} PROJECT_NAME_UPPER)
   set_target_properties(${PROJECT_NAME} PROPERTIES COMPILE_FLAGS -D${PROJECT_NAME_UPPER}_STATIC)
 endif()
+
+# Import dependent dlls of NVTT
+add_custom_command (TARGET ${PROJECT_NAME} POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+  # Copy NVTT dll
+  $<TARGET_FILE:NVTT::NVTT> $<TARGET_FILE_DIR:${PROJECT_NAME}>
+)
+
+add_custom_command (TARGET ${PROJECT_NAME} POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+  # Copy (dependent) CUDA dll
+  $<TARGET_PROPERTY:NVTT::NVTT,IMPORTED_CUDA> $<TARGET_FILE_DIR:${PROJECT_NAME}>
+)
 
 ##################################################    Postbuild   ##################################################
 include               (GenerateExportHeader)
@@ -211,10 +165,10 @@ endif()
 ##################################################  Installation  ##################################################
 # Currently doesnt work because KTexComp, as it can't be exported right now
 
-#install(TARGETS ${PROJECT_NAME} EXPORT ${PROJECT_NAME}-config
-#  ARCHIVE DESTINATION lib
-#  LIBRARY DESTINATION lib
-#  RUNTIME DESTINATION bin)
-#install(DIRECTORY include/ DESTINATION include)
-#install(EXPORT  ${PROJECT_NAME}-config DESTINATION cmake)
-#export (TARGETS ${PROJECT_NAME}        FILE        ${PROJECT_NAME}-config.cmake)
+install(TARGETS ${PROJECT_NAME} EXPORT ${PROJECT_NAME}-config
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin)
+install(DIRECTORY include/ DESTINATION include)
+install(EXPORT  ${PROJECT_NAME}-config DESTINATION cmake)
+export (TARGETS ${PROJECT_NAME}        FILE        ${PROJECT_NAME}-config.cmake)

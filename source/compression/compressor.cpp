@@ -34,9 +34,9 @@ namespace texpress {
 
   private:
     uint8_t* buffer;
-    uint64_t offset;
     uint64_t total;
     uint64_t progress;
+    int lastwritten;
     int percentage;
     int* progress_output;
   };
@@ -44,11 +44,11 @@ namespace texpress {
 
   nvttOutputHandler::nvttOutputHandler(uint8_t* buffer_out) :
       buffer(buffer_out)
-    , offset(0)
     , total(0)
     , progress(0)
     , percentage(0)
     , progress_output(nullptr)
+    , lastwritten(0)
     {}
 
   nvttOutputHandler::~nvttOutputHandler() {
@@ -71,10 +71,9 @@ namespace texpress {
     //memcpy((void*)(buffer + offset), data, size);
 
     uint8_t* ptr = (uint8_t*) data;
-    for (auto i = 0; i < size; i++) {
-      buffer[offset + i] = ptr[i];
+    for (uint32_t i = 0; i < size; i++) {
+      buffer[progress + i] = ptr[i];
     }
-    offset += size;
 
     // Progress
     progress += size;
@@ -101,8 +100,7 @@ namespace texpress {
     progress_output = ptr;
   }
 
-
-  uint64_t Encoder::estimate_size(const EncoderSettings& settings, const EncoderData& input) {
+  uint64_t Encoder::encoded_size(const EncoderSettings& settings, const EncoderData& input) {
     nvtt::Context context(false);
 
     // Specify what compression settings to use
@@ -114,27 +112,39 @@ namespace texpress {
     }
 
     // Setup empty floating-point RGBA image to deduce needed buffersize.
-    nvtt::Surface image;
-    image.setImage(nvtt::InputFormat_RGBA_32F, input.dim_x, input.dim_y, 1, input.data_ptr);
-    uint64_t buffer_size = context.estimateSize(image, 1, compressionOptions) * input.dim_z * input.dim_t;
+    nvtt::Surface surface;
+    surface.setImage(nvtt::InputFormat_RGBA_32F, input.dim_x, input.dim_y, 1, input.data_ptr);
+    uint64_t buffer_size = context.estimateSize(surface, 1, compressionOptions) * input.dim_z * input.dim_t;
 
     return buffer_size;
   }
 
+  uint64_t Encoder::decoded_size(const EncoderData& input, bool hdr) {
+    uint64_t element_bytes = (hdr) ? sizeof(float) : sizeof(uint8_t);
+    return input.dim_x * input.dim_y * input.dim_z * input.dim_t * input.channels * element_bytes;
+  }
+
   bool Encoder::compress(const EncoderSettings& settings, const EncoderData& input, EncoderData& output) {
+    // Multithread safety
+    if (busy.exchange(true)) {
+      return false;
+    }
+
     if (!output.data_ptr) {
       spdlog::error("Output Buffer not initialized");
+      busy.store(false);
       return false;
     }
 
     if ((gl::GLenum)input.gl_format != gl::GLenum::GL_RGBA) {
       spdlog::error("gl_format must be RGBA.");
+      busy.store(false);
       return false;
     }
 
     // Create context which enables CUDA compression for capable GPUs.
     // Incapable GPUs will fall back to CPU compression.
-    nvtt::Context context(false);
+    nvtt::Context context(true);
 
     // Specify what compression settings to use
     nvtt::CompressionOptions compressionOptions;
@@ -145,12 +155,13 @@ namespace texpress {
     }
 
     // Setup empty floating-point RGBA image to deduce needed buffersize.
-    nvtt::Surface image;
-    image.setImage(nvtt::InputFormat_RGBA_32F, input.dim_x, input.dim_y, 1, input.data_ptr);
-    uint64_t buffer_size = context.estimateSize(image, 1, compressionOptions) * input.dim_z * input.dim_t;
+    nvtt::Surface surface;
+    surface.setImage(nvtt::InputFormat_RGBA_32F, input.dim_x, input.dim_y, 1, input.data_ptr);
+    uint64_t buffer_size = context.estimateSize(surface, 1, compressionOptions) * input.dim_z * input.dim_t;
 
     if (buffer_size > output.data_bytes) {
       spdlog::error("Output Buffer {0} bytes too small", buffer_size - output.data_bytes);
+      busy.store(false);
       return false;
     }
 
@@ -181,28 +192,213 @@ namespace texpress {
       break;
     default:
       spdlog::error("Encoding {0} is unsupported, use BC6H.", settings.encoding);
+
+      busy.store(false);
       return false;
     }
 
     // Compress whole (time) volume
     uint64_t offset = 0;
+    int written = 0;
     for (int t = 0; t < input.dim_t; t++) {
       for (int z = 0; z < input.dim_z; z++) {
-        image.setImage(nvtt::InputFormat_RGBA_32F, input.dim_x, input.dim_y, 1, input.data_ptr + offset);
+        nvtt::Surface surface2;
+        surface2.setImage(nvtt::InputFormat_RGBA_32F, input.dim_x, input.dim_y, 1, input.data_ptr + offset);
 
-        if (!context.compress(image, 0, 0, compressionOptions, outputOptions)) {
+        if (!context.compress(surface2, 0, 0, compressionOptions, outputOptions)) {
           spdlog::error("Compression failed");
+          busy.store(false);
           return false;
         }
 
-        offset += input.dim_x * input.dim_y * input.channels;
+        offset += input.data_bytes / (input.dim_t * input.dim_z);
       }
+    }
+
+    /*
+    surface.setImage(nvtt::InputFormat_RGBA_32F, input.dim_x, input.dim_y, input.dim_z, input.data_ptr);
+
+    if (!context.compress(surface, 0, 0, compressionOptions, outputOptions)) {
+      spdlog::error("Compression failed");
+      return false;
+    }
+    */
+    busy.store(false);
+    return true;
+  }
+
+  bool Encoder::decompress(const EncoderData& input, EncoderData& output) {
+    // Multithread safety
+    if (busy.exchange(true)) {
+      return false;
+    }
+
+    if (input.gl_internal == (uint32_t)gl::GLenum::GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT) {
+      busy.store(false);
+      return decompress(nvtt::Format::Format_BC6S, input, output);
+    }
+
+    if (input.gl_internal == (uint32_t)gl::GLenum::GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT) {
+      busy.store(false);
+      return decompress(nvtt::Format::Format_BC6U, input, output);
+    }
+
+    spdlog::error("Could not deduce nvtt encoding of gl_internal with value {0}.", input.gl_internal);
+    busy.store(false);
+    return false;
+  }
+
+  bool Encoder::decompress(const nvtt::Format encoding, const EncoderData& input, EncoderData& output) {
+    // Multithread safety
+    if (busy.exchange(true)) {
+      return false;
+    }
+
+    if (!output.data_ptr) {
+      spdlog::error("Output Buffer not initialized");
+      busy.store(false);
+      return false;
+    }
+
+    uint64_t buffer_size = input.dim_x * input.dim_y * input.dim_z * input.dim_t * input.channels * sizeof(float);
+    if (buffer_size > output.data_bytes) {
+      spdlog::error("Output Buffer {0} bytes too small", buffer_size - output.data_bytes);
+      busy.store(false);
+      return false;
+    }
+
+    // Setup empty floating-point RGBA image to deduce needed buffersize.
+    nvtt::Surface surface;
+    surface.setImage3D(encoding, input.dim_x, input.dim_y, input.dim_z, input.data_ptr);
+
+    const float* r_ptr = (input.channels >= 1) ? surface.channel(0) : nullptr;
+    const float* g_ptr = (input.channels >= 2) ? surface.channel(1) : nullptr;
+    const float* b_ptr = (input.channels >= 3) ? surface.channel(2) : nullptr;
+    const float* a_ptr = (input.channels >= 4) ? surface.channel(3) : nullptr;
+
+    float* out_ptr = reinterpret_cast<float*>(output.data_ptr);
+    for (auto p = 0; p < input.dim_x * input.dim_y * input.dim_z * input.dim_t; p++) {
+      if (r_ptr) {
+        out_ptr[p * input.channels + 0] = r_ptr[p];
+      }
+      if (g_ptr) {
+        out_ptr[p * input.channels + 1] = g_ptr[p];
+      }
+      if (b_ptr) {
+        out_ptr[p * input.channels + 2] = b_ptr[p];
+      }
+      if (a_ptr) {
+        out_ptr[p * input.channels + 3] = a_ptr[p];
+      }
+    }
+
+    // Prepare output
+    output.dim_x = input.dim_x;
+    output.dim_y = input.dim_y;
+    output.dim_z = input.dim_z;
+    output.dim_t = input.dim_t;
+    output.channels = input.channels;
+    //output.gl_format = (uint32_t)gl::GLenum::GL_RGBA;
+    //output.gl_internal = (uint32_t)gl::GLenum::GL_RGBA32F;
+    output.gl_format = (uint32_t) gl_internal_uncomnpressed(input.channels, 32, true);
+    output.gl_format = (uint32_t) gl_pixel(input.channels);
+
+    busy.store(false);
+    return true;
+  }
+
+  bool Encoder::populate_EncoderData(EncoderData& enc_data, Texture<float>& tex_input) {
+    enc_data.gl_format = (uint32_t) tex_input.gl_pixelFormat;
+    enc_data.gl_internal= (uint32_t)tex_input.gl_internalFormat;
+
+    return populate_EncoderData_base(enc_data,
+      tex_input.grid_size.x, tex_input.grid_size.y, tex_input.grid_size.z, tex_input.grid_size.w,
+      tex_input.data_channels, tex_input.bytes(), reinterpret_cast<uint8_t*>(tex_input.data.data())
+    );
+  }
+
+  bool Encoder::populate_EncoderData(EncoderData& enc_data, Texture<uint8_t>& tex_input) {
+    enc_data.gl_format = (uint32_t)tex_input.gl_pixelFormat;
+    enc_data.gl_internal = (uint32_t)tex_input.gl_internalFormat;
+
+    return populate_EncoderData_base(enc_data,
+      tex_input.grid_size.x, tex_input.grid_size.y, tex_input.grid_size.z, tex_input.grid_size.w,
+      tex_input.data_channels, tex_input.bytes(), tex_input.data.data()
+    );
+  }
+  bool Encoder::populate_EncoderData(EncoderData& enc_data, image_ldr& img_input) {
+    enc_data.gl_format = (uint32_t) gl_pixel(img_input.channels);
+    enc_data.gl_internal = (uint32_t)gl_internal_uncomnpressed(img_input.channels, 8, false);
+
+    return populate_EncoderData_base(enc_data,
+      img_input.size.x, img_input.size.y, 1, 1,
+      img_input.channels, img_input.bytes(), img_input.data.data()
+    );
+  }
+  bool Encoder::populate_EncoderData(EncoderData& enc_data, image_hdr& img_input) {
+    enc_data.gl_format = (uint32_t)gl_pixel(img_input.channels);
+    enc_data.gl_internal = (uint32_t)gl_internal_uncomnpressed(img_input.channels, 32, true);
+
+    return populate_EncoderData_base(enc_data,
+      img_input.size.x, img_input.size.y, 1, 1,
+      img_input.channels, img_input.bytes(), reinterpret_cast<uint8_t*>(img_input.data.data())
+    );
+  }
+
+  bool Encoder::populate_Texture(Texture<float>& tex, EncoderData& enc_data) {
+    tex.grid_size = { enc_data.dim_x, enc_data.dim_y, enc_data.dim_z, enc_data.dim_t };
+    tex.data_channels = enc_data.channels;
+
+    tex.gl_internalFormat = gl::GLenum(enc_data.gl_internal);
+    tex.gl_pixelFormat = gl::GLenum(enc_data.gl_format);
+    tex.gl_type = gl::GL_FLOAT;
+
+    if (tex.gl_internalFormat == gl::GLenum::GL_ZERO) {
+      tex.gl_internalFormat = gl_internal_uncomnpressed(enc_data.channels, 32, true);
+      //uint8_t bits = (enc_data.data_bytes / (enc_data.dim_x * enc_data.dim_y * enc_data.dim_z * enc_data.dim_t * enc_data.channels)) * 8;
+      //tex.gl_internalFormat = gl_internal_uncomnpressed(enc_data.channels, bits, bits > 8);
     }
 
     return true;
   }
 
+  bool Encoder::populate_Texture(Texture<uint8_t>& tex, EncoderData& enc_data) {
+    tex.grid_size = { enc_data.dim_x, enc_data.dim_y, enc_data.dim_z, enc_data.dim_t };
+    tex.data_channels = enc_data.channels;
 
+    tex.gl_internalFormat = gl::GLenum(enc_data.gl_internal);
+    tex.gl_pixelFormat = gl::GLenum(enc_data.gl_format);
+    tex.gl_type = gl::GL_UNSIGNED_BYTE;
+
+    if (tex.gl_internalFormat == gl::GLenum::GL_ZERO) {
+      tex.gl_internalFormat = gl_internal_uncomnpressed(enc_data.channels, 8, false);
+      //uint8_t bits = (enc_data.data_bytes / (enc_data.dim_x * enc_data.dim_y * enc_data.dim_z * enc_data.dim_t * enc_data.channels)) * 8;
+      //tex.gl_internalFormat = gl_internal_uncomnpressed(enc_data.channels, bits, bits > 8);
+    }
+
+    return true;
+  }
+
+  bool Encoder::populate_Image(image& img, EncoderData& enc_data) {
+    img.size = { enc_data.dim_x, enc_data.dim_y };
+    img.channels = enc_data.channels;
+
+    return true;
+  }
+
+  bool Encoder::populate_EncoderData_base(EncoderData& enc_data, uint32_t dim_x, uint32_t dim_y, uint32_t dim_z, uint32_t dim_t, uint8_t channels, uint64_t data_bytes, uint8_t* data_ptr) {
+    enc_data.dim_x = dim_x;
+    enc_data.dim_y = dim_y;
+    enc_data.dim_z = dim_z;
+    enc_data.dim_t = dim_t;
+    enc_data.channels = channels;
+    enc_data.data_bytes = data_bytes;
+    enc_data.data_ptr = data_ptr;
+
+    return true;
+  }
+
+  /*
   Texture<uint8_t> Encoder::compress_bc6h_nvtt(const Texture<float>& input) {
     // Output structure
     auto out = Texture<uint8_t>{};
@@ -293,4 +489,5 @@ namespace texpress {
 
     return out;
   }
+  */
 }

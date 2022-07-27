@@ -62,7 +62,7 @@ struct update_pass : texpress::render_pass
       // --> Upload file
       if (ImGui::Button("Upload Image")) {
         if (texpress::file_exists(buf_path)) {
-          spdlog::info("Uploading image...");
+          spdlog::info("Uploading image_ldr...");
 
           imgIn = texpress::load_image_hdr(buf_path, 4);
           imgSource = texpress::image_to_texture<float>(imgIn);
@@ -76,7 +76,7 @@ struct update_pass : texpress::render_pass
             imgSource.data_size *= 2;
           }
 
-          spdlog::info("Uploaded image!");
+          spdlog::info("Uploaded image_ldr!");
           texIn->image2D(0, imgSource.gl_internalFormat, imgSource.grid_size, 0, imgSource.gl_pixelFormat, imgSource.gl_type, imgSource.data.data());
 
           /*
@@ -98,7 +98,6 @@ struct update_pass : texpress::render_pass
         }
         else {
           spdlog::info("Compressing BC6H...");
-
           texpress::EncoderSettings settings{};
           settings.use_weights = false;
           settings.encoding = nvtt::Format::Format_BC6S;
@@ -106,18 +105,10 @@ struct update_pass : texpress::render_pass
           settings.progress_ptr = nullptr;
 
           texpress::EncoderData input{};
-          input.channels = imgSource.data_channels;
-          input.dim_x = imgSource.grid_size.x;
-          input.dim_y = imgSource.grid_size.y;
-          input.dim_z = imgSource.grid_size.z;
-          input.dim_t = imgSource.grid_size.w;
-          input.gl_format = (uint32_t)imgSource.gl_pixelFormat;
-          input.gl_internal = (uint32_t)imgSource.gl_internalFormat;
-          input.data_bytes = imgSource.data.size() * sizeof(float);
-          input.data_ptr = reinterpret_cast<uint8_t*>(imgSource.data.data());
-
+          texpress::Encoder::populate_EncoderData(input, imgSource);
+          
           texpress::EncoderData output{};
-          output.data_bytes = encoder->estimate_size(settings, input);
+          output.data_bytes = encoder->encoded_size(settings, input);
           imgEncoded.data.resize(output.data_bytes);
           output.data_ptr = imgEncoded.data.data();
 
@@ -125,24 +116,27 @@ struct update_pass : texpress::render_pass
             spdlog::info("Compressed!");
           }
 
-          imgEncoded.grid_size.x = output.dim_x;
-          imgEncoded.grid_size.y = output.dim_y;
-          imgEncoded.grid_size.z = output.dim_z;
-          imgEncoded.grid_size.w = output.dim_t;
-          imgEncoded.data_channels = output.channels;
-          imgEncoded.data_size = imgEncoded.data.size() * sizeof(uint8_t);
-          imgEncoded.gl_internalFormat = (gl::GLenum) output.gl_internal;
-          imgEncoded.gl_pixelFormat = (gl::GLenum) output.gl_format;
+          texpress::Encoder::populate_Texture(imgEncoded, output);
 
-          texOut->compressedImage2D(0, imgEncoded.gl_internalFormat, glm::ivec2(imgEncoded.grid_size), 0, imgEncoded.data_size / imgEncoded.grid_size.z, imgEncoded.data.data());
+          texOut->compressedImage2D(0, imgEncoded.gl_internalFormat, glm::ivec2(imgEncoded.grid_size), 0, imgEncoded.bytes() / imgEncoded.grid_size.z, imgEncoded.data.data());
         }
       }
 
       if (ImGui::Button("Decompress BC6H") && !imgEncoded.data.empty()) {
-        //imgDecoded = encoder->decompress_bc6h(imgEncoded);
-        imgDecoded = encoder->decompress_bc6h_nvtt(imgEncoded);
+        texpress::EncoderData input{};
+        texpress::Encoder::populate_EncoderData(input, imgEncoded);
 
-        //to_rgba(imgDecoded);
+        texpress::EncoderData output{};
+        output.data_bytes = encoder->decoded_size(input);
+        imgDecoded.data.resize(output.data_bytes);
+        output.data_ptr = reinterpret_cast<uint8_t*>(imgDecoded.data.data());
+
+        if (encoder->decompress(input, output)) {
+          spdlog::info("Decompressed!");
+        }
+
+        texpress::Encoder::populate_Texture(imgDecoded, output);
+
         texOut->image2D(0, imgDecoded.gl_internalFormat, imgDecoded.grid_size, 0, imgDecoded.gl_pixelFormat, imgDecoded.gl_type, imgDecoded.data.data());
       }
 
@@ -169,7 +163,7 @@ struct update_pass : texpress::render_pass
 
       if (ImGui::Button("Load Compressed KTX")) {
         imgEncoded = texpress::load_ktx<uint8_t>("enc_test.ktx");
-        texOut->compressedImage2D(0, imgEncoded.gl_internalFormat, glm::ivec2(imgEncoded.grid_size), 0, imgEncoded.data_size / imgEncoded.grid_size.z, imgEncoded.data.data());
+        texOut->compressedImage2D(0, imgEncoded.gl_internalFormat, glm::ivec2(imgEncoded.grid_size), 0, imgEncoded.bytes() / imgEncoded.grid_size.z, imgEncoded.data.data());
       }
 
       if (ImGui::Button("Save Decoded KTX")) {
@@ -214,7 +208,7 @@ struct update_pass : texpress::render_pass
   texpress::Texture<float> imgDecoded;
 
   // Debug Image
-  texpress::hdr_image imgIn;
+  texpress::image_hdr imgIn;
   std::unique_ptr<globjects::Texture> texIn;
   std::unique_ptr<globjects::Texture> texOut;
 
