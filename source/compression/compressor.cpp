@@ -125,6 +125,7 @@ namespace texpress {
   }
 
   bool Encoder::compress(const EncoderSettings& settings, const EncoderData& input, EncoderData& output) {
+    int add_channel = 0;
     // Multithread safety
     if (busy.exchange(true)) {
       return false;
@@ -136,10 +137,16 @@ namespace texpress {
       return false;
     }
 
-    if ((gl::GLenum)input.gl_format != gl::GLenum::GL_RGBA) {
-      spdlog::error("gl_format must be RGBA.");
-      busy.store(false);
-      return false;
+    switch ((gl::GLenum)input.gl_format) {
+    case gl::GLenum::GL_RGB:
+      add_channel = 1;
+      break;
+    case gl::GLenum::GL_RG:
+      add_channel = 2;
+      break;
+    case gl::GLenum::GL_R:
+      add_channel = 3;
+      break;
     }
 
     // Create context which enables CUDA compression for capable GPUs.
@@ -199,13 +206,41 @@ namespace texpress {
 
     // Compress whole (time) volume
     uint64_t offset = 0;
-    int written = 0;
+    uint8_t* data_ptr = nullptr;
+
+    if (add_channel) {
+      uint64_t new_size = input.data_bytes * 4 / (input.dim_t * input.dim_z * input.channels);
+      data_ptr = new uint8_t[new_size];
+    }
+
     for (int t = 0; t < input.dim_t; t++) {
       for (int z = 0; z < input.dim_z; z++) {
-        nvtt::Surface surface2;
-        surface2.setImage(nvtt::InputFormat_RGBA_32F, input.dim_x, input.dim_y, 1, input.data_ptr + offset);
+        if (add_channel) {
+          uint64_t src_id = offset / sizeof(float);
+          uint64_t dest_id = 0;
+          float* f_src = reinterpret_cast<float*>(input.data_ptr);
+          float* f_dest = reinterpret_cast<float*>(data_ptr);
+          for (int y = 0; y < input.dim_y; y++) {
+            for (int x = 0; x < input.dim_x; x++) {
+              for (int c = 0; c < input.channels; c++) {
+                f_dest[dest_id] = f_src[src_id];
+                src_id++;
+                dest_id++;
+              }
 
-        if (!context.compress(surface2, 0, 0, compressionOptions, outputOptions)) {
+              for (int c = 0; c < add_channel; c++) {
+                f_dest[dest_id] = (input.channels + c == 3) ? 1.0f : 0.0f;
+                dest_id++;
+              }
+            }
+          }
+        }
+        else {
+          data_ptr = input.data_ptr + offset;
+        }
+
+        surface.setImage(nvtt::InputFormat_RGBA_32F, input.dim_x, input.dim_y, 1, data_ptr);
+        if (!context.compress(surface, 0, 0, compressionOptions, outputOptions)) {
           spdlog::error("Compression failed");
           busy.store(false);
           return false;
@@ -213,6 +248,10 @@ namespace texpress {
 
         offset += input.data_bytes / (input.dim_t * input.dim_z);
       }
+    }
+
+    if (add_channel) {
+      delete[] data_ptr;
     }
 
     /*

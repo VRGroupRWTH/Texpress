@@ -59,12 +59,13 @@ namespace texpress
     bool read_datasets(std::vector<const char*> paths, std::vector<uint64_t> offsets, std::vector<uint64_t> strides, std::vector<T>& input) {
       auto dataset = file->getDataSet(paths[0]);
       auto dimensions = dataset.getDimensions();
+      auto element_space = paths.size();
       std::vector<uint64_t> elements;
-      auto elements_flat = 0;
+      uint64_t elements_flat = 0;
       dataset.getStorageSize();
 
       // Missing offsets / strides are assumed as regular read operation
-      for (int i = 0; i < dimensions.size(); i++) {
+      for (int i = 0; i < element_space; i++) {
         if (offsets.size() < dimensions.size())
           offsets.push_back(0);
         if (strides.size() < dimensions.size())
@@ -72,24 +73,25 @@ namespace texpress
       }
 
       // Count elements to initialize buffer
-      for (int i = 0; i < paths.size(); i++) {
+      for (int i = 0; i < element_space; i++) {
         dataset = file->getDataSet(paths[i]);
         elements.push_back((dataset.getElementCount() - offsets[i]) / strides[i]);
         elements_flat += elements.back();
       }
 
       input.resize(elements_flat);
+      std::vector<T> slice(*std::max_element(elements.begin(), elements.end()));
 
       // Fill buffer
       uint64_t buffer_offset = 0;
-      for (int i = 0; i < paths.size(); i++) {
+      for (int i = 0; i < element_space; i++) {
         dataset = file->getDataSet(paths[i]);
         dimensions = dataset.getDimensions();
 
         // Selection parameters specific to current dataset
         std::vector<uint64_t> i_offsets{ offsets[i] };
         std::vector<uint64_t> i_strides{ strides[i] };
-        std::vector<uint64_t> i_elements{ (dimensions[0] - i_offsets[0]) / i_strides[0]};
+        std::vector<uint64_t> i_elements{ (dimensions[0] - i_offsets[0]) / i_strides[0] };
 
         for (int j = 1; j < dimensions.size(); j++) {
           i_offsets.push_back(0);
@@ -97,8 +99,13 @@ namespace texpress
           i_elements.push_back((dimensions[j] - i_offsets[j]) / i_strides[j]);
         }
 
-        dataset.select(i_offsets, i_elements, i_strides).read<T>(input.data() + buffer_offset);
-        buffer_offset += elements[i];
+        // Read into temporary buffer
+        dataset.select(i_offsets, i_elements, i_strides).read<T>(slice.data());
+
+        // Copy to correct positions in input buffer
+        for (uint64_t k = 0; k < elements[i]; k++) {
+          input[i + k * element_space] = std::move(slice[k]);
+        }
       }
       
       return true;

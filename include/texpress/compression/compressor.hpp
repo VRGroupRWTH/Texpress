@@ -61,6 +61,30 @@ namespace texpress
 
     static bool populate_Image(image& img, EncoderData& enc_data);
 
+    static void initialize_buffer(std::vector<uint8_t>& buffer, const EncoderSettings& settings, const EncoderData& input) {
+      buffer.resize(encoded_size(settings, input)/sizeof(uint8_t));
+    }
+
+    template <typename T>
+    static void initialize_buffer(std::vector<T>& buffer, const EncoderSettings& settings, const EncoderData& input) {
+      buffer.resize(encoded_size(settings, input) / sizeof(T));
+    }
+
+    template <typename T>
+    static void initialize_buffer(T* buffer, const EncoderSettings& settings, const EncoderData& input) {
+      buffer = new T[(encoded_size(settings, input) / sizeof(double))];
+    }
+
+    template <typename T>
+    static void free_buffer(std::vector<T>& buffer) {
+      buffer.clear();
+    }
+
+    template <typename T>
+    static void free_buffer(T* buffer) {
+      delete buffer;
+    }
+
     bool compress(const EncoderSettings& settings, const EncoderData& input, EncoderData& output);
     bool decompress(const EncoderData& input, EncoderData& output);
     bool decompress(const nvtt::Format encoding, const EncoderData& input, EncoderData& output);

@@ -96,7 +96,7 @@ struct update_pass : texpress::render_pass
           }
         }
         ImGui::SameLine();
-        ImGui::InputText("##Filepath", buf_path, 64);
+        ImGui::InputText("##Filepath", buf_path, 128);
 
         struct Funcs {
           static int cb(ImGuiInputTextCallbackData* data) {
@@ -113,7 +113,7 @@ struct update_pass : texpress::render_pass
         ImGui::Text("X Dataset");
         ImGui::SameLine();
         ImGui::BeginGroup();
-        if (ImGui::InputText("##X Dataset", buf_x, 64))
+        if (ImGui::InputText("##X Dataset", buf_x, 128))
           configuration_changed = true;
         ImGui::Text("Stride");
         ImGui::SameLine();
@@ -128,7 +128,7 @@ struct update_pass : texpress::render_pass
         ImGui::Text("Y Dataset");
         ImGui::SameLine();
         ImGui::BeginGroup();
-        if (ImGui::InputText("##Y Dataset", buf_y, 64))
+        if (ImGui::InputText("##Y Dataset", buf_y, 128))
           configuration_changed = true;
         ImGui::Text("Stride");
         ImGui::SameLine();
@@ -143,7 +143,7 @@ struct update_pass : texpress::render_pass
         ImGui::Text("Z Dataset");
         ImGui::SameLine();
         ImGui::BeginGroup();
-        if (ImGui::InputText("##Z Dataset", buf_z, 64))
+        if (ImGui::InputText("##Z Dataset", buf_z, 128))
           configuration_changed = true;
         ImGui::Text("Stride");
         ImGui::SameLine();
@@ -164,8 +164,9 @@ struct update_pass : texpress::render_pass
                                     , { uint64_t(offset_x), uint64_t(offset_y), uint64_t(offset_z) }
                                     , { uint64_t(stride_x), uint64_t(stride_y), uint64_t(stride_z) }
                                     , hdf5_data.data);
-          texpress::interleave_force(hdf5_data.data, 4, hdf5_data.data.size() / 3, 1.0f);
-          hdf5_data.channels = 4;
+          //texpress::interleave_force(hdf5_data.data, 4, hdf5_data.data.size() / 3, 1.0f);
+          //texpress::add_channel(hdf5_data.data, 3, 1.0f);
+          hdf5_data.channels = 3;
           auto dims = file.dataset_dimensions(buf_x);
           for (int i = 0; i < hdf5_data.dimensions.length(); i++) {
             hdf5_data.dimensions[i] = (i < dims.size()) ? dims[i] : 1;
@@ -192,14 +193,13 @@ struct update_pass : texpress::render_pass
           texpress::Encoder::populate_EncoderData(input, hdf5_data);
 
           texpress::EncoderData output{};
-          output.data_bytes = encoder->encoded_size(settings, input);
-          hdf5_encoded.data.resize(output.data_bytes);
-          output.data_ptr = hdf5_encoded.data.data();
+          texpress::Encoder::initialize_buffer(hdf5_encoded.data, settings, input);
+          texpress::Encoder::populate_EncoderData(output, hdf5_encoded);
 
           if (encoder->compress(settings, input, output)) {
             spdlog::info("Compressed!");
+            texpress::Encoder::populate_Texture(hdf5_encoded, output);
           }
-          texpress::Encoder::populate_Texture(hdf5_encoded, output);
 
           if (!texOut) {
             texOut = globjects::Texture::createDefault();
@@ -339,22 +339,24 @@ struct update_pass : texpress::render_pass
         }
         ImGui::EndChild();
 
-        ImGui::SliderInt("Depth Slice", &depth_slice, 0, hdf5_data.dimensions.z * hdf5_data.dimensions.w - 1);
+        //ImGui::SliderInt("Depth Slice", &depth_slice, 0, hdf5_data.dimensions.z * hdf5_data.dimensions.w - 1);
+        uint64_t min = 0;
+        uint64_t max = (uint64_t) std::max(hdf5_data.dimensions.z * hdf5_data.dimensions.w - 1, 0);
+        ImGui::SliderScalar("Depth Slice", ImGuiDataType_U64, &depth_slice, &min, &max);
+        //ImGui::SliderInt("Depth Slice", &depth_slice, min, max);
 
         ImGui::Text("Input Image");
         if (texIn) {
-          texIn->image2D(0, hdf5_data.gl_internal, hdf5_data.dimensions, 0, hdf5_data.gl_format, hdf5_data.gl_type, hdf5_data.data.data() + depth_slice * (hdf5_data.dimensions.x * hdf5_data.dimensions.y * hdf5_data.channels));
+          uint64_t offset = depth_slice * (uint64_t) hdf5_data.dimensions.x * (uint64_t) hdf5_data.dimensions.y * (uint64_t) hdf5_data.channels;
+          texIn->image2D(0, hdf5_data.gl_internal, hdf5_data.dimensions, 0, hdf5_data.gl_format, hdf5_data.gl_type, hdf5_data.data.data() + offset);
 
-          if (depth_slice == hdf5_data.dimensions.z - 1) {
-            depth_slice = 0;
-          }
           ImTextureID texID = ImTextureID(texIn->id());
           ImGui::Image(texID, ImVec2(500, 500), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
         }
         ImGui::SameLine(); ImGui::Text("Output Image"); ImGui::SameLine();
         if (texOut) {
-          texOut->image2D(0, hdf5_data.gl_internal, hdf5_data.dimensions, 0, hdf5_data.gl_format, hdf5_data.gl_type, hdf5_data.data.data() + depth_slice * (hdf5_data.dimensions.x * hdf5_data.dimensions.y * hdf5_data.channels));
-          //texOut->compressedImage2D(0, hdf5_encoded.gl_internal, glm::ivec2(hdf5_encoded.dimensions), 0, hdf5_encoded.bytes() / hdf5_encoded.dimensions.z, hdf5_encoded.data.data() + depth_slice * (hdf5_encoded.bytes() / hdf5_encoded.dimensions.z));
+          //texOut->image2D(0, hdf5_data.gl_internal, hdf5_data.dimensions, 0, hdf5_data.gl_format, hdf5_data.gl_type, hdf5_data.data.data() + depth_slice * (hdf5_data.dimensions.x * hdf5_data.dimensions.y * hdf5_data.channels));
+          texOut->compressedImage2D(0, hdf5_encoded.gl_internal, glm::ivec2(hdf5_encoded.dimensions), 0, hdf5_encoded.bytes() / (hdf5_encoded.dimensions.z * hdf5_encoded.dimensions.w), hdf5_encoded.data.data() + depth_slice * hdf5_encoded.bytes() / (hdf5_encoded.dimensions.z * hdf5_encoded.dimensions.w));
 
           ImTextureID texID = ImTextureID(texOut->id());
           ImGui::Image(texID, ImVec2(500, 500), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
@@ -389,10 +391,10 @@ struct update_pass : texpress::render_pass
   double lag;
 
   // Gui
-  char buf_path[64];
-  char buf_x[64];
-  char buf_y[64];
-  char buf_z[64];
+  char buf_path[128];
+  char buf_x[128];
+  char buf_y[128];
+  char buf_z[128];
   int stride_x;
   int stride_y;
   int stride_z;

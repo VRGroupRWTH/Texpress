@@ -11,12 +11,12 @@ namespace texpress
   template <typename T>
   struct Texture {
     std::vector<T> data;          // databuffer
-    uint8_t channels;
-    glm::ivec4 dimensions;         // extents of each grid dimension
-    gl::GLenum gl_type;           // data type (unsigned int, float, ...) as glenum
-    gl::GLenum gl_internal; // internal format as glenum
-    gl::GLenum gl_format;
-    glm::ivec3 enc_blocksize;     // extents of block dimensions (ignored for uncompressed)
+    uint8_t channels = 0;
+    glm::ivec4 dimensions = glm::ivec4(0);         // extents of each grid dimension
+    gl::GLenum gl_type = gl::GLenum::GL_NONE;           // data type (unsigned int, float, ...) as glenum
+    gl::GLenum gl_internal = gl::GLenum::GL_NONE; // internal format as glenum
+    gl::GLenum gl_format = gl::GLenum::GL_NONE;
+    glm::ivec3 enc_blocksize = glm::ivec3(0);     // extents of block dimensions (ignored for uncompressed)
 
     uint64_t bytes() const { return data.size() * sizeof(T); }
     uint64_t bytes_type() const { return sizeof(T); }
