@@ -69,15 +69,15 @@ struct update_pass : texpress::render_pass
 
           for (int i = 0; i < 1; i++) {
             imgSource.data.insert(imgSource.data.end(), imgSource.data.begin(), imgSource.data.end());
-            //for (int p = 0; p < imgSource.grid_size.x * imgSource.grid_size.y * imgSource.data_channels; p++) {
+            //for (int p = 0; p < imgSource.dimensions.x * imgSource.dimensions.y * imgSource.channels; p++) {
             //  imgSource.data.push_back(1.0f);
             //}
-            imgSource.grid_size.z *= 2;
+            imgSource.dimensions.z *= 2;
             imgSource.data_size *= 2;
           }
 
           spdlog::info("Uploaded image_ldr!");
-          texIn->image2D(0, imgSource.gl_internalFormat, imgSource.grid_size, 0, imgSource.gl_pixelFormat, imgSource.gl_type, imgSource.data.data());
+          texIn->image2D(0, imgSource.gl_internal, imgSource.dimensions, 0, imgSource.channels, imgSource.gl_type, imgSource.data.data());
 
           /*
           if (!texpress::file_read(buf_path, fbuffer.data(), fbuffer.size()))
@@ -118,7 +118,7 @@ struct update_pass : texpress::render_pass
 
           texpress::Encoder::populate_Texture(imgEncoded, output);
 
-          texOut->compressedImage2D(0, imgEncoded.gl_internalFormat, glm::ivec2(imgEncoded.grid_size), 0, imgEncoded.bytes() / imgEncoded.grid_size.z, imgEncoded.data.data());
+          texOut->compressedImage2D(0, imgEncoded.gl_internal, glm::ivec2(imgEncoded.dimensions), 0, imgEncoded.bytes() / imgEncoded.dimensions.z, imgEncoded.data.data());
         }
       }
 
@@ -137,7 +137,7 @@ struct update_pass : texpress::render_pass
 
         texpress::Encoder::populate_Texture(imgDecoded, output);
 
-        texOut->image2D(0, imgDecoded.gl_internalFormat, imgDecoded.grid_size, 0, imgDecoded.gl_pixelFormat, imgDecoded.gl_type, imgDecoded.data.data());
+        texOut->image2D(0, imgDecoded.gl_internal, imgDecoded.dimensions, 0, imgDecoded.gl_format, imgDecoded.gl_type, imgDecoded.data.data());
       }
 
       if (ImGui::Button("Save Source Image")) {
@@ -149,12 +149,12 @@ struct update_pass : texpress::render_pass
       }
 
       if (ImGui::Button("Save Source KTX")) {
-        texpress::save_ktx(imgSource, "source_test", imgSource.grid_size.z > 1, imgSource.grid_size.w > 1);
+        texpress::save_ktx(imgSource, "source_test", imgSource.dimensions.z > 1, imgSource.dimensions.w > 1);
       }
 
       if (ImGui::Button("Load Source KTX")) {
         imgSource = texpress::load_ktx<float>("source_test.ktx");
-        texOut->image2D(0, imgSource.gl_internalFormat, imgSource.grid_size, 0, imgSource.gl_pixelFormat, imgSource.gl_type, imgSource.data.data());
+        texOut->image2D(0, imgSource.gl_internal, imgSource.dimensions, 0, imgSource.gl_format, imgSource.gl_type, imgSource.data.data());
       }
 
       if (ImGui::Button("Save Compressed KTX")) {
@@ -163,16 +163,16 @@ struct update_pass : texpress::render_pass
 
       if (ImGui::Button("Load Compressed KTX")) {
         imgEncoded = texpress::load_ktx<uint8_t>("enc_test.ktx");
-        texOut->compressedImage2D(0, imgEncoded.gl_internalFormat, glm::ivec2(imgEncoded.grid_size), 0, imgEncoded.bytes() / imgEncoded.grid_size.z, imgEncoded.data.data());
+        texOut->compressedImage2D(0, imgEncoded.gl_internal, glm::ivec2(imgEncoded.dimensions), 0, imgEncoded.bytes() / imgEncoded.dimensions.z, imgEncoded.data.data());
       }
 
       if (ImGui::Button("Save Decoded KTX")) {
-        texpress::save_ktx(imgDecoded, "dec_test.ktx", imgDecoded.grid_size.z > 1, imgDecoded.grid_size.w > 1);
+        texpress::save_ktx(imgDecoded, "dec_test.ktx", imgDecoded.dimensions.z > 1, imgDecoded.dimensions.w > 1);
       }
 
       if (ImGui::Button("Load Decoded KTX")) {
         imgDecoded = texpress::load_ktx<float>("dec_test.ktx");
-        texOut->image2D(0, imgDecoded.gl_internalFormat, imgDecoded.grid_size, 0, imgDecoded.gl_pixelFormat, imgDecoded.gl_type, imgDecoded.data.data());
+        texOut->image2D(0, imgDecoded.gl_internal, imgDecoded.dimensions, 0, imgDecoded.gl_format, imgDecoded.gl_type, imgDecoded.data.data());
       }
 
       // --> Quit

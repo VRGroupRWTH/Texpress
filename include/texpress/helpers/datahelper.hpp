@@ -1,10 +1,10 @@
 #pragma once
 #include <vector>
 #include <thread>
-
+#include <algorithm>
 namespace texpress {
   template <typename T>
-  std::vector<T> interleave(const std::vector<T>& data, uint64_t chunks, uint64_t chunk_size) {
+  void interleave(const std::vector<T>& data, uint64_t chunks, uint64_t chunk_size) {
     std::vector<T> out(data.size());
 
     // Helper func
@@ -35,11 +35,11 @@ namespace texpress {
     }
     */
 
-    return out;
+    data = std::move(out);
   }
 
   template <typename T>
-  std::vector<T> interleave_force(const std::vector<T>& data, uint64_t chunks, uint64_t chunk_size, const T& dummy_val) {
+  void interleave_force(std::vector<T>& data, uint64_t chunks, uint64_t chunk_size, const T& dummy_val) {
     std::vector<T> out(chunks * chunk_size);
 
     // Helper func
@@ -66,6 +66,6 @@ namespace texpress {
         thread.join();
     }
 
-    return out;
+    data = std::move(out);
   }
 }

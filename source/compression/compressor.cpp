@@ -300,35 +300,35 @@ namespace texpress {
     output.channels = input.channels;
     //output.gl_format = (uint32_t)gl::GLenum::GL_RGBA;
     //output.gl_internal = (uint32_t)gl::GLenum::GL_RGBA32F;
-    output.gl_format = (uint32_t) gl_internal_uncomnpressed(input.channels, 32, true);
-    output.gl_format = (uint32_t) gl_pixel(input.channels);
+    output.gl_format = (uint32_t) gl_internal(input.channels, 32, true);
+    output.gl_format = (uint32_t) gl_format(input.channels);
 
     busy.store(false);
     return true;
   }
 
   bool Encoder::populate_EncoderData(EncoderData& enc_data, Texture<float>& tex_input) {
-    enc_data.gl_format = (uint32_t) tex_input.gl_pixelFormat;
-    enc_data.gl_internal= (uint32_t)tex_input.gl_internalFormat;
+    enc_data.gl_format = (uint32_t) tex_input.gl_format;
+    enc_data.gl_internal= (uint32_t)tex_input.gl_internal;
 
     return populate_EncoderData_base(enc_data,
-      tex_input.grid_size.x, tex_input.grid_size.y, tex_input.grid_size.z, tex_input.grid_size.w,
-      tex_input.data_channels, tex_input.bytes(), reinterpret_cast<uint8_t*>(tex_input.data.data())
+      tex_input.dimensions.x, tex_input.dimensions.y, tex_input.dimensions.z, tex_input.dimensions.w,
+      tex_input.channels, tex_input.bytes(), reinterpret_cast<uint8_t*>(tex_input.data.data())
     );
   }
 
   bool Encoder::populate_EncoderData(EncoderData& enc_data, Texture<uint8_t>& tex_input) {
-    enc_data.gl_format = (uint32_t)tex_input.gl_pixelFormat;
-    enc_data.gl_internal = (uint32_t)tex_input.gl_internalFormat;
+    enc_data.gl_format = (uint32_t)tex_input.gl_format;
+    enc_data.gl_internal = (uint32_t)tex_input.gl_internal;
 
     return populate_EncoderData_base(enc_data,
-      tex_input.grid_size.x, tex_input.grid_size.y, tex_input.grid_size.z, tex_input.grid_size.w,
-      tex_input.data_channels, tex_input.bytes(), tex_input.data.data()
+      tex_input.dimensions.x, tex_input.dimensions.y, tex_input.dimensions.z, tex_input.dimensions.w,
+      tex_input.channels, tex_input.bytes(), tex_input.data.data()
     );
   }
   bool Encoder::populate_EncoderData(EncoderData& enc_data, image_ldr& img_input) {
-    enc_data.gl_format = (uint32_t) gl_pixel(img_input.channels);
-    enc_data.gl_internal = (uint32_t)gl_internal_uncomnpressed(img_input.channels, 8, false);
+    enc_data.gl_format = (uint32_t) gl_format(img_input.channels);
+    enc_data.gl_internal = (uint32_t)gl_internal(img_input.channels, 8, false);
 
     return populate_EncoderData_base(enc_data,
       img_input.size.x, img_input.size.y, 1, 1,
@@ -336,8 +336,8 @@ namespace texpress {
     );
   }
   bool Encoder::populate_EncoderData(EncoderData& enc_data, image_hdr& img_input) {
-    enc_data.gl_format = (uint32_t)gl_pixel(img_input.channels);
-    enc_data.gl_internal = (uint32_t)gl_internal_uncomnpressed(img_input.channels, 32, true);
+    enc_data.gl_format = (uint32_t)gl_format(img_input.channels);
+    enc_data.gl_internal = (uint32_t)gl_internal(img_input.channels, 32, true);
 
     return populate_EncoderData_base(enc_data,
       img_input.size.x, img_input.size.y, 1, 1,
@@ -346,34 +346,34 @@ namespace texpress {
   }
 
   bool Encoder::populate_Texture(Texture<float>& tex, EncoderData& enc_data) {
-    tex.grid_size = { enc_data.dim_x, enc_data.dim_y, enc_data.dim_z, enc_data.dim_t };
-    tex.data_channels = enc_data.channels;
+    tex.dimensions = { enc_data.dim_x, enc_data.dim_y, enc_data.dim_z, enc_data.dim_t };
+    tex.channels = enc_data.channels;
 
-    tex.gl_internalFormat = gl::GLenum(enc_data.gl_internal);
-    tex.gl_pixelFormat = gl::GLenum(enc_data.gl_format);
+    tex.gl_internal = gl::GLenum(enc_data.gl_internal);
+    tex.gl_format = gl::GLenum(enc_data.gl_format);
     tex.gl_type = gl::GL_FLOAT;
 
-    if (tex.gl_internalFormat == gl::GLenum::GL_ZERO) {
-      tex.gl_internalFormat = gl_internal_uncomnpressed(enc_data.channels, 32, true);
+    if (tex.gl_internal == gl::GLenum::GL_ZERO) {
+      tex.gl_internal = gl_internal(enc_data.channels, 32, true);
       //uint8_t bits = (enc_data.data_bytes / (enc_data.dim_x * enc_data.dim_y * enc_data.dim_z * enc_data.dim_t * enc_data.channels)) * 8;
-      //tex.gl_internalFormat = gl_internal_uncomnpressed(enc_data.channels, bits, bits > 8);
+      //tex.gl_internal = gl_internal_uncomnpressed(enc_data.channels, bits, bits > 8);
     }
 
     return true;
   }
 
   bool Encoder::populate_Texture(Texture<uint8_t>& tex, EncoderData& enc_data) {
-    tex.grid_size = { enc_data.dim_x, enc_data.dim_y, enc_data.dim_z, enc_data.dim_t };
-    tex.data_channels = enc_data.channels;
+    tex.dimensions = { enc_data.dim_x, enc_data.dim_y, enc_data.dim_z, enc_data.dim_t };
+    tex.channels = enc_data.channels;
 
-    tex.gl_internalFormat = gl::GLenum(enc_data.gl_internal);
-    tex.gl_pixelFormat = gl::GLenum(enc_data.gl_format);
+    tex.gl_internal = gl::GLenum(enc_data.gl_internal);
+    tex.gl_format = gl::GLenum(enc_data.gl_format);
     tex.gl_type = gl::GL_UNSIGNED_BYTE;
 
-    if (tex.gl_internalFormat == gl::GLenum::GL_ZERO) {
-      tex.gl_internalFormat = gl_internal_uncomnpressed(enc_data.channels, 8, false);
+    if (tex.gl_internal == gl::GLenum::GL_ZERO) {
+      tex.gl_internal = gl_internal(enc_data.channels, 8, false);
       //uint8_t bits = (enc_data.data_bytes / (enc_data.dim_x * enc_data.dim_y * enc_data.dim_z * enc_data.dim_t * enc_data.channels)) * 8;
-      //tex.gl_internalFormat = gl_internal_uncomnpressed(enc_data.channels, bits, bits > 8);
+      //tex.gl_internal = gl_internal_uncomnpressed(enc_data.channels, bits, bits > 8);
     }
 
     return true;
@@ -402,16 +402,16 @@ namespace texpress {
   Texture<uint8_t> Encoder::compress_bc6h_nvtt(const Texture<float>& input) {
     // Output structure
     auto out = Texture<uint8_t>{};
-    out.data_channels = input.data_channels;
-    out.grid_size = input.grid_size;
+    out.channels = input.channels;
+    out.dimensions = input.dimensions;
     out.gl_type = TEXPRESS_FLOAT;
-    out.gl_pixelFormat = gl_pixel(out.data_channels);
-    out.gl_internalFormat = TEXPRESS_BC6H_SIGNED;
+    out.gl_format = gl_pixel(out.channels);
+    out.gl_internal = TEXPRESS_BC6H_SIGNED;
     out.enc_blocksize = { 4, 4, 1 };
 
     // Load the source image into a floating-point RGBA image.
     nvtt::Surface image;
-    image.setImage(nvtt::InputFormat_RGBA_32F, out.grid_size.x, out.grid_size.y, out.grid_size.z, input.data.data());
+    image.setImage(nvtt::InputFormat_RGBA_32F, out.dimensions.x, out.dimensions.y, out.dimensions.z, input.data.data());
 
     // Context
     // Create the compression context; enable CUDA compression, so that
@@ -441,19 +441,19 @@ namespace texpress {
     //}
 
     uint64_t offset = 0;
-    for (int t = 0; t < input.grid_size.w; t++) {
-      for (int z = 0; z < input.grid_size.z; z++) {
+    for (int t = 0; t < input.dimensions.w; t++) {
+      for (int z = 0; z < input.dimensions.z; z++) {
         nvtt::Surface img;
-        img.setImage(nvtt::InputFormat_RGBA_32F, out.grid_size.x, out.grid_size.y, 1, (input.data.data() + offset));
+        img.setImage(nvtt::InputFormat_RGBA_32F, out.dimensions.x, out.dimensions.y, 1, (input.data.data() + offset));
 
         if (!context.compress(img, 0, 0, compressionOptions, outputOptions)) {
           spdlog::error("Compression failed");
         }
         
-        offset += input.grid_size.x * input.grid_size.y * input.data_channels;
+        offset += input.dimensions.x * input.dimensions.y * input.channels;
       }
 
-      offset += input.grid_size.x * input.grid_size.y * input.grid_size.z * input.data_channels;
+      offset += input.dimensions.x * input.dimensions.y * input.dimensions.z * input.channels;
     }
 
     return out;
@@ -462,28 +462,28 @@ namespace texpress {
   Texture<float> Encoder::decompress_bc6h_nvtt(const Texture<uint8_t>& input) {
     // Output structure
     auto out = Texture<float>{};
-    out.grid_size = input.grid_size;
+    out.dimensions = input.dimensions;
     out.gl_type = TEXPRESS_FLOAT;
-    out.data_channels = input.data_channels;
-    out.gl_pixelFormat = gl_pixel(out.data_channels);
-    out.gl_internalFormat = gl_internal_uncomnpressed(out.data_channels, 32, true);
-    out.data_size = out.grid_size.x * out.grid_size.y * out.grid_size.z * out.grid_size.w * out.data_channels;
+    out.channels = input.channels;
+    out.gl_format = gl_pixel(out.channels);
+    out.gl_internal = gl_internal_uncomnpressed(out.channels, 32, true);
+    out.data_size = out.dimensions.x * out.dimensions.y * out.dimensions.z * out.dimensions.w * out.channels;
     // Load the source image into a floating-point RGBA image.
     nvtt::Surface image;
-    image.setImage3D(nvtt::Format_BC6S, input.grid_size.x, input.grid_size.y, input.grid_size.z, input.data.data());
-    const float* r_ptr = (out.data_channels >= 1) ? image.channel(0) : nullptr;
-    const float* g_ptr = (out.data_channels >= 2) ? image.channel(1) : nullptr;
-    const float* b_ptr = (out.data_channels >= 3) ? image.channel(2) : nullptr;
-    const float* a_ptr = (out.data_channels >= 4) ? image.channel(3) : nullptr;
+    image.setImage3D(nvtt::Format_BC6S, input.dimensions.x, input.dimensions.y, input.dimensions.z, input.data.data());
+    const float* r_ptr = (out.channels >= 1) ? image.channel(0) : nullptr;
+    const float* g_ptr = (out.channels >= 2) ? image.channel(1) : nullptr;
+    const float* b_ptr = (out.channels >= 3) ? image.channel(2) : nullptr;
+    const float* a_ptr = (out.channels >= 4) ? image.channel(3) : nullptr;
 
     out.data.resize(out.data_size);
-    for (auto p = 0; p < out.grid_size.x * out.grid_size.y * out.grid_size.z * out.grid_size.w; p++) {
-      out.data[p * out.data_channels + 0] = r_ptr[p];
-      out.data[p * out.data_channels + 1] = g_ptr[p];
-      out.data[p * out.data_channels + 2] = b_ptr[p];
+    for (auto p = 0; p < out.dimensions.x * out.dimensions.y * out.dimensions.z * out.dimensions.w; p++) {
+      out.data[p * out.channels + 0] = r_ptr[p];
+      out.data[p * out.channels + 1] = g_ptr[p];
+      out.data[p * out.channels + 2] = b_ptr[p];
 
       if (a_ptr) {
-        out.data[p * out.data_channels + 3] = a_ptr[p];
+        out.data[p * out.channels + 3] = a_ptr[p];
       }
     }
 

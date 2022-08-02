@@ -144,16 +144,15 @@ namespace texpress {
       }
     }
 
-    tex.data_channels = exr_header.num_channels;
-    tex.grid_size.x = exr_header.data_window.max_x + 1 - exr_header.data_window.min_x;
-    tex.grid_size.y = exr_header.data_window.max_y + 1 - exr_header.data_window.min_y;
-    tex.grid_size.z = 1;
-    tex.grid_size.w = 1;
-    tex.gl_internalFormat = gl_internal_uncomnpressed(tex.data_channels, 32, true);
-    tex.gl_pixelFormat = gl_pixel(tex.data_channels);
+    tex.channels = exr_header.num_channels;
+    tex.dimensions.x = exr_header.data_window.max_x + 1 - exr_header.data_window.min_x;
+    tex.dimensions.y = exr_header.data_window.max_y + 1 - exr_header.data_window.min_y;
+    tex.dimensions.z = 1;
+    tex.dimensions.w = 1;
+    tex.gl_internal = gl_internal(tex.channels, 32, true);
+    tex.gl_format = gl_format(tex.channels);
     tex.gl_type = gl::GLenum::GL_FLOAT;
-    tex.data.resize(tex.grid_size.x * tex.grid_size.y * tex.grid_size.z * tex.grid_size.w * tex.data_channels);
-    tex.data_size = tex.data.capacity() * sizeof(float);
+    tex.data.resize(tex.dimensions.x * tex.dimensions.y * tex.dimensions.z * tex.dimensions.w * tex.channels);
 
     EXRImage exr_image;
     InitEXRImage(&exr_image);
@@ -178,9 +177,9 @@ namespace texpress {
     int b = -1;
     int a = -1;
 
-    for (int pixel = 0; pixel < tex.grid_size.x * tex.grid_size.y * tex.grid_size.z * tex.grid_size.w; pixel++) {
-      for (int c = 0; c < tex.data_channels; c++) {
-        tex.data[tex.data_channels * pixel + c] = image_ptr[tex.data_channels - 1 - c][pixel];
+    for (int pixel = 0; pixel < tex.dimensions.x * tex.dimensions.y * tex.dimensions.z * tex.dimensions.w; pixel++) {
+      for (int c = 0; c < tex.channels; c++) {
+        tex.data[tex.channels * pixel + c] = image_ptr[tex.channels - 1 - c][pixel];
       }
     }
 
@@ -451,5 +450,5 @@ namespace texpress {
   bool save_hdr(const char* path, const image_hdr& img) { return save_hdr(path, img.data.data(), img.size, img.channels); }
   bool save_exr_bgr(const char* path, const image_hdr& img) { return save_exr_bgr(path, img.data.data(), img.size, img.channels); }
   bool save_exr(const char* path, const image_hdr& img, const std::string order) { return save_exr(path, img.data.data(), img.size, img.channels, order); }
-  bool save_exr(const char* path, const Texture<float>& img, const std::string order) { return save_exr(path, img.data.data(), img.grid_size, img.data_channels); }
+  bool save_exr(const char* path, const Texture<float>& img, const std::string order) { return save_exr(path, img.data.data(), img.dimensions, img.channels); }
 }

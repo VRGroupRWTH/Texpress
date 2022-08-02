@@ -185,121 +185,27 @@ namespace texpress
     delete file;
   }
 
-  /* =========================================================================*/
-  /*                             Constructors
-  /* =========================================================================*/
-  hdf5_handler::hdf5_handler(
-    std::string              filepath,
-    std::vector<std::string> dataset_names
-  ) : hdf5_file{ filepath, HighFive::File::ReadOnly }
-    , hdf5_datasets{ dataset_names }
-  {
-    // no-op
-  }
+  bool hdf5::read(HighFive::DataSet dataset, uint64_t offset, uint64_t stride, uint8_t* data_ptr) {
+    auto dimensions = dataset.getDimensions();
+    uint64_t elements = (dataset.getElementCount() - offset) / stride;
 
+    // Selection parameters specific to current dataset
+    std::vector<uint64_t> i_offsets{ offset };
+    std::vector<uint64_t> i_strides{ stride };
+    std::vector<uint64_t> i_elements{ (dimensions[0] - i_offsets[0]) / i_strides[0] };
 
-  /* =========================================================================*/
-  /*                             Getter / Setter
-  /* =========================================================================*/
-  std::size_t hdf5_handler::get_datatype_bytesize()
-  {
-    HighFive::DataSet  dataset = hdf5_file.getDataSet(hdf5_datasets[0]);
-    HighFive::DataType datatype = dataset.getDataType();
-
-    return datatype.getSize();
-  }
-
-  std::vector<std::size_t> hdf5_handler::get_grid(bool desc_order)
-  {
-    HighFive::DataSet        dataset = hdf5_file.getDataSet(hdf5_datasets[0]);
-    std::vector<std::size_t> grid = dataset.getDimensions();
-    std::uint8_t             grid_dim = grid.size();
-
-    std::size_t  grid_t = (grid_dim == 4) ? grid[grid_dim - 4] : 0;
-    std::size_t  grid_z = (grid_dim >= 3) ? grid[grid_dim - 3] : 0;
-    std::size_t  grid_y = (grid_dim >= 2) ? grid[grid_dim - 2] : 0;
-    std::size_t  grid_x = (grid_dim >= 1) ? grid[grid_dim - 1] : 0;
-
-    switch (grid_dim)
-    {
-    case 1:
-      return { grid_x };
-
-    case 2:
-      if (desc_order)
-        return { grid_y, grid_x };
-      else
-        return { grid_x, grid_y };
-
-    case 3:
-      if (desc_order)
-        return { grid_z, grid_y, grid_x };
-      else
-        return { grid_x, grid_y, grid_z };
-
-    case 4:
-      if (desc_order)
-        return { grid_t, grid_z, grid_y, grid_x };
-      else
-        return { grid_x, grid_y, grid_z, grid_t };
+    for (int j = 1; j < dimensions.size(); j++) {
+      i_offsets.push_back(0);
+      i_strides.push_back(1);
+      i_elements.push_back((dimensions[j] - i_offsets[j]) / i_strides[j]);
     }
 
-    return { };
+    dataset.select(i_offsets, i_elements, i_strides).read<uint8_t>(data_ptr, dataset.getDataType());
+
+    return true;
   }
 
-  std::vector<std::size_t> hdf5_handler::get_grid_fixsize(bool desc_order, std::size_t fillvalue)
-  {
-    HighFive::DataSet        dataset = hdf5_file.getDataSet(hdf5_datasets[0]);
-    std::vector<std::size_t> grid = dataset.getDimensions();
-    std::uint8_t             grid_dim = grid.size();
-
-    std::size_t  grid_t = (grid_dim == 4) ? grid[grid_dim - 4] : 0;
-    std::size_t  grid_z = (grid_dim >= 3) ? grid[grid_dim - 3] : 0;
-    std::size_t  grid_y = (grid_dim >= 2) ? grid[grid_dim - 2] : 0;
-    std::size_t  grid_x = (grid_dim >= 1) ? grid[grid_dim - 1] : 0;
-
-    std::size_t& fv = fillvalue;
-    switch (grid_dim)
-    {
-    case 1:
-      if (desc_order)
-        return { fv, fv, fv, grid_x };
-
-      else
-        return { grid_x, fv, fv, fv };
-
-    case 2:
-      if (desc_order)
-        return { fv, fv, grid_y, grid_x };
-      else
-        return { grid_x, grid_y, fv, fv };
-
-    case 3:
-      if (desc_order)
-        return { fv, grid_z, grid_y, grid_x };
-      else
-        return { grid_x, grid_y, grid_z, fv };
-
-    case 4:
-      if (desc_order)
-        return { grid_t, grid_z, grid_y, grid_x };
-      else
-        return { grid_x, grid_y, grid_z, grid_t };
-    }
-
-    return { };
-  }
-
-  std::size_t hdf5_handler::get_grid_dim()
-  {
-    HighFive::DataSet        dataset = hdf5_file.getDataSet(hdf5_datasets[0]);
-    std::vector<std::size_t> grid = dataset.getDimensions();
-
-    return grid.size();
-  }
-
-  std::size_t hdf5_handler::get_vec_len()
-  {
-    return hdf5_datasets.size();
+  std::vector<uint64_t> hdf5::dataset_dimensions(const char* dataset) {
+    return file->getDataSet(dataset).getDimensions();
   }
 }

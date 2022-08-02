@@ -14,13 +14,13 @@ TEST_CASE("Sandbox testing.", "[texpress::sandbox]")
 
     for (int i = 0; i < 1; i++) {
       //tex.data.insert(tex.data.end(), tex.data.begin(), tex.data.end());
-      for (int p = 0; p < tex.grid_size.x * tex.grid_size.y * tex.data_channels; p++) {
+      for (int p = 0; p < tex.dimensions.x * tex.dimensions.y * tex.channels; p++) {
         tex.data.push_back(1.0f);
       }
-      //tex.grid_size.z *= 2;
+      //tex.dimensions.z *= 2;
       //tex.data_size *= 2;
-      tex.data_size += tex.data_size / tex.grid_size.z;
-      tex.grid_size.z += 1;
+      tex.data_size += tex.data_size / tex.dimensions.z;
+      tex.dimensions.z += 1;
     }
 
     //texpress::save_exr("test_exr", tex);

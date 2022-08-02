@@ -7,22 +7,32 @@
 #include <texpress/utility/stringtools.hpp>
 
 namespace texpress {
+  bool save_ktx(const uint8_t* data_ptr, const char* path, const glm::ivec4& dimensions, gl::GLenum gl_internal_format, uint64_t size, bool as_texture_array = false, bool save_monolithic = false);
+
+  template <typename T>
+  bool save_ktx(Texture<T> input, const char* path, bool as_texture_array = false, bool save_monolithic = false) {
+    return save_ktx(reinterpret_cast<uint8_t*>(input.data.data()), path, input.dimensions, input.gl_internal, input.bytes(), as_texture_array, save_monolithic);
+  }
+
+  /*
   template <typename T>
   bool save_ktx(Texture<T> input, const char* path, bool as_texture_array = false, bool save_monolithic = false) {
     ktxTexture1* texture;
     ktxTextureCreateInfo createInfo;
     KTX_error_code result;
 
+    ktxTexture2;
+
     glm::ivec4 range;
-    range.x = std::max(input.grid_size.x, 1);
-    range.y = std::max(input.grid_size.y, 1);
-    range.z = std::max(input.grid_size.z, 1);
-    range.w = std::max(input.grid_size.w, 1);
+    range.x = std::max(input.dimensions.x, 1);
+    range.y = std::max(input.dimensions.y, 1);
+    range.z = std::max(input.dimensions.z, 1);
+    range.w = std::max(input.dimensions.w, 1);
 
     // Automatically a monolithic file if time-dim = 1
     bool monolithic = save_monolithic || (range.w == 1);
 
-    createInfo.glInternalformat = (ktx_uint32_t)input.gl_internalFormat;
+    createInfo.glInternalformat = (ktx_uint32_t)input.gl_internal;
     createInfo.baseWidth = range.x;
     createInfo.baseHeight = range.y;
     createInfo.baseDepth = (monolithic) ? range.z * range.w : range.z;
@@ -88,35 +98,13 @@ namespace texpress {
     }
 
     ktxTexture_Destroy(ktxTexture(texture));
-
-    /* Debug
-    ktx_size_t offset;
-    for (uint64_t i = 0; i < texture->baseDepth; i++) {
-      result = ktxTexture_GetImageOffset(ktxTexture(texture), 0, 0, i, &offset);
-      T* imageData = reinterpret_cast<T*>(ktxTexture_GetData(ktxTexture(texture)) + offset);
-
-      if (result)
-        spdlog::error("Error Read");
-
-      std::cout << i << ":" << std::endl;
-      for (int j = 0; j < 4; j++) {
-        std::cout << imageData[j] << ", ";
-      }
-      std::cout << std::endl;
-
-      for (int j = 4; j < 8; j++) {
-        std::cout << imageData[j] << ", ";
-      }
-      std::cout << std::endl;
-      std::cout << std::endl;
-    }
-    */
     
     return true;
   }
+  */
 
   template <typename T>
-  Texture<T> load_ktx(const char* path) {
+  void load_ktx(const char* path, Texture<T>& tex) {
     ktxTexture1* texture;
     KTX_error_code result;
 
@@ -125,21 +113,20 @@ namespace texpress {
       &ktxTexture(texture));
 
     if (result)
-      return { };
+      return;
 
-    Texture<T> out{};
-    out.grid_size.x = texture->baseWidth;
-    out.grid_size.y = texture->baseHeight;
-    out.grid_size.z = (texture->isArray) ? texture->numLayers : texture->baseDepth;
-    out.grid_size.w = (texture->isArray) ? texture->numLayers : texture->baseDepth;
-    out.data_size = ktxTexture_GetDataSize(ktxTexture(texture));
-    out.gl_internalFormat = gl::GLenum(texture->glInternalformat);
-    out.gl_pixelFormat = gl::GLenum(texture->glFormat);
-    out.gl_type = gl::GLenum(texture->glType);
-    out.data_channels = gl_colorchannels(out.gl_pixelFormat);
+    tex.data.clear();
+    tex.dimensions.x = texture->baseWidth;
+    tex.dimensions.y = texture->baseHeight;
+    tex.dimensions.z = (texture->isArray) ? texture->numLayers : texture->baseDepth;
+    tex.dimensions.w = 1;
+    tex.gl_internal = gl::GLenum(texture->glInternalformat);
+    tex.gl_format = gl::GLenum(texture->glFormat);
+    tex.gl_type = gl::GLenum(texture->glType);
+    tex.channels = gl_channels(tex.gl_format);
 
-    out.data.reserve(out.data_size / sizeof(T));
-    uint64_t volume_elements = out.data.capacity();
+    tex.data.reserve(ktxTexture_GetDataSize(ktxTexture(texture)) / sizeof(T));
+    uint64_t volume_elements = tex.data.capacity();
     uint64_t slice_elements = (texture->isArray) ? volume_elements / texture->numLayers : volume_elements / texture->baseDepth;
 
     // 2D Array
@@ -149,13 +136,13 @@ namespace texpress {
 
         result = ktxTexture_GetImageOffset(ktxTexture(texture), 0, z, 0, &offset);
         T* imageData = reinterpret_cast<T*>(ktxTexture_GetData(ktxTexture(texture)) + offset);
-        out.data.insert(out.data.end(), imageData, imageData + slice_elements);
+        tex.data.insert(tex.data.end(), imageData, imageData + slice_elements);
       }
     }
     // 3D Texture
     else {
       T* imageData = reinterpret_cast<T*>(ktxTexture_GetData(ktxTexture(texture)));
-      out.data.insert(out.data.end(), imageData, imageData + volume_elements);
+      tex.data.insert(tex.data.end(), imageData, imageData + volume_elements);
     }
 
     // Debug
@@ -175,6 +162,5 @@ namespace texpress {
     }
     */
     ktxTexture_Destroy(ktxTexture(texture));
-    return out;
   }
 }

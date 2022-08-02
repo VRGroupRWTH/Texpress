@@ -2,7 +2,6 @@
 #include <texpress/api.hpp>
 
 #include <iostream>
-#include <compressonator.h>
 
 #include <ktx.h>
 #include <stdio.h>
@@ -86,7 +85,7 @@ struct rendering_pass : texpress::render_pass
         imagef_in = texpress::load_image_hdr("../files/vr.jpg", 4);
 
         image_out = texpress::load_ktx<uint8_t>("3d_ktx_bc6h_neg.ktx2");
-        image_out.gl_internalFormat = gl::GLenum::GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT;
+        image_out.gl_internal = gl::GLenum::GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT;
 
         //image_out = encoder->compress_bc6h(texpress::BC6H_options(), imagef_in);
        }
@@ -132,7 +131,7 @@ struct rendering_pass : texpress::render_pass
       else
       {
         texture_out->bindActive(0);
-        texture_out->compressedImage2D(0, image_out.gl_internalFormat, glm::ivec2(image_out.grid_size), 0, image_out.data_size, image_out.data.data());
+        texture_out->compressedImage2D(0, image_out.gl_internal, glm::ivec2(image_out.dimensions), 0, image_out.data_size, image_out.data.data());
       }
 
       index_buffer->bind(gl::GLenum::GL_ELEMENT_ARRAY_BUFFER);

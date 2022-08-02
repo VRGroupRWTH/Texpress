@@ -34,7 +34,7 @@ namespace texpress {
     std::string warn;
 
     tinygltf::Buffer buffer;
-    buffer.data.assign(reinterpret_cast<const uint8_t*>(input.data.data()), reinterpret_cast<const uint8_t*>(input.data.data()) + input.data_size);
+    buffer.data.assign(reinterpret_cast<const uint8_t*>(input.data.data()), reinterpret_cast<const uint8_t*>(input.data.data()) + input.bytes());
 
     tinygltf::BufferView view;
     view.buffer = 0;
