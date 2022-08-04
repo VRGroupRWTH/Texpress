@@ -41,7 +41,8 @@ struct update_pass : texpress::render_pass
     , texOut(nullptr)
     , hdf5_file(nullptr)
     , hdf5_data()
-    , depth_slice(0)
+    , depth_src(0)
+    , depth_enc(0)
   {
     on_prepare = [&] ( )
     {
@@ -84,7 +85,7 @@ struct update_pass : texpress::render_pass
         ImGuiWindowFlags window_flags = ImGuiWindowFlags_HorizontalScrollbar;
         window_flags |= ImGuiWindowFlags_NoScrollWithMouse;
         //ImGui::BeginChild("ChildL", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 260), false, window_flags);
-        ImGui::BeginChild("ChildL", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0), false, window_flags);
+        ImGui::BeginChild("ChildL", { ImGui::GetContentRegionAvail().x * 0.5f, ImGui::GetContentRegionAvail().y * 0.5f }, false, window_flags);
         if (ImGui::Button("Select HDF5")) {
           try {
             hdf5_file = new HighFive::File(buf_path, HighFive::File::ReadOnly);
@@ -233,20 +234,20 @@ struct update_pass : texpress::render_pass
 
 
         if (ImGui::Button("Save Source KTX") && !hdf5_data.data.empty()) {
-          texpress::save_ktx(hdf5_data, "source_data_test.ktx", true, false);
+          texpress::save_ktx(hdf5_data, "source_data_test.ktx", false, true);
         }
 
         if (ImGui::Button("Load Source KTX")) {
           texpress::load_ktx<float>("source_data_test.ktx", hdf5_data);
-          if (!texOut) {
-            texOut = globjects::Texture::createDefault();
+          if (!texIn) {
+            texIn = globjects::Texture::createDefault();
           }
-          texOut->image2D(0, hdf5_data.gl_internal, hdf5_data.dimensions, 0, hdf5_data.gl_format, hdf5_data.gl_type, hdf5_data.data.data());
+          texIn->image2D(0, hdf5_data.gl_internal, hdf5_data.dimensions, 0, hdf5_data.gl_format, hdf5_data.gl_type, hdf5_data.data.data());
         }
 
 
         if (ImGui::Button("Save Compressed KTX") && !hdf5_encoded.data.empty()) {
-          texpress::save_ktx(hdf5_encoded, "enc_data_test.ktx", true, true);
+          texpress::save_ktx(hdf5_encoded, "enc_data_test.ktx", false, true);
         }
 
         if (ImGui::Button("Load Compressed KTX")) {
@@ -286,7 +287,7 @@ struct update_pass : texpress::render_pass
       {
         ImGuiWindowFlags window_flags = ImGuiWindowFlags_HorizontalScrollbar;
         window_flags |= ImGuiWindowFlags_NoScrollWithMouse;
-        ImGui::BeginChild("ChildR", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0), false, window_flags);
+        ImGui::BeginChild("ChildR", { ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().y * 0.5f }, false, window_flags);
         ImGui::Text("HDF5 File");
         // Visualize HDF5 structure
         if (!hdf5_structure.empty()) {
@@ -301,6 +302,8 @@ struct update_pass : texpress::render_pass
               IMGUI_COLOR_HDFGROUP;
               if (ImGui::TreeNode("/")) {
                 IMGUI_UNCOLOR;
+                if (ImGui::IsItemHovered())
+                  ImGui::SetTooltip("Root");
                 for (auto* child : node->children)
                   visualize(child);
                 ImGui::TreePop();
@@ -313,11 +316,15 @@ struct update_pass : texpress::render_pass
               IMGUI_COLOR_HDFGROUP;
               if (ImGui::TreeNode(node->name.c_str())) {
                 IMGUI_UNCOLOR;
+                if(ImGui::IsItemHovered())
+                  ImGui::SetTooltip("Group");
                 for (auto* child : node->children)
                   visualize(child);
                 ImGui::TreePop();
               }
               else { IMGUI_UNCOLOR; }
+              if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Group");
             }
 
             // Leafs
@@ -326,6 +333,8 @@ struct update_pass : texpress::render_pass
               else {
                 IMGUI_COLOR_HDFOTHER; }
               ImGui::Text(node->name.c_str());
+              if (ImGui::IsItemHovered())
+                  ImGui::SetTooltip(node->get_string_type().c_str());
               ImGui::SameLine();
               if (ImGui::Button(("Copy##" + node->get_path()).c_str())) {
                 ImGui::LogToClipboard();
@@ -338,35 +347,63 @@ struct update_pass : texpress::render_pass
           visualize(hdf5_structure.root);
         }
         ImGui::EndChild();
-
-        //ImGui::SliderInt("Depth Slice", &depth_slice, 0, hdf5_data.dimensions.z * hdf5_data.dimensions.w - 1);
-        uint64_t min = 0;
-        uint64_t max = (uint64_t) std::max(hdf5_data.dimensions.z * hdf5_data.dimensions.w - 1, 0);
-        ImGui::SliderScalar("Depth Slice", ImGuiDataType_U64, &depth_slice, &min, &max);
-        //ImGui::SliderInt("Depth Slice", &depth_slice, min, max);
-
-        ImGui::Text("Input Image");
-        if (texIn) {
-          uint64_t offset = depth_slice * (uint64_t) hdf5_data.dimensions.x * (uint64_t) hdf5_data.dimensions.y * (uint64_t) hdf5_data.channels;
-          texIn->image2D(0, hdf5_data.gl_internal, hdf5_data.dimensions, 0, hdf5_data.gl_format, hdf5_data.gl_type, hdf5_data.data.data() + offset);
-
-          ImTextureID texID = ImTextureID(texIn->id());
-          ImGui::Image(texID, ImVec2(500, 500), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
-        }
-        ImGui::SameLine(); ImGui::Text("Output Image"); ImGui::SameLine();
-        if (texOut) {
-          //texOut->image2D(0, hdf5_data.gl_internal, hdf5_data.dimensions, 0, hdf5_data.gl_format, hdf5_data.gl_type, hdf5_data.data.data() + depth_slice * (hdf5_data.dimensions.x * hdf5_data.dimensions.y * hdf5_data.channels));
-          texOut->compressedImage2D(0, hdf5_encoded.gl_internal, glm::ivec2(hdf5_encoded.dimensions), 0, hdf5_encoded.bytes() / (hdf5_encoded.dimensions.z * hdf5_encoded.dimensions.w), hdf5_encoded.data.data() + depth_slice * hdf5_encoded.bytes() / (hdf5_encoded.dimensions.z * hdf5_encoded.dimensions.w));
-
-          ImTextureID texID = ImTextureID(texOut->id());
-          ImGui::Image(texID, ImVec2(500, 500), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
-        }
       }
 
+      {
+        ImGui::BeginChild("ChildBL", { ImGui::GetContentRegionAvail().x * 0.5f, ImGui::GetContentRegionAvail().y }, false, window_flags);
+        if (ImGui::CollapsingHeader("Source Data")) {
+          if (texIn) {
+            uint64_t min = 0;
+            uint64_t max = (uint64_t)std::max(hdf5_data.dimensions.z * hdf5_data.dimensions.w - 1, 0);
+            ImGui::SliderScalar("Depth Slice##src", ImGuiDataType_U64, &depth_src, &min, &max);
+
+            uint64_t offset = depth_src * (uint64_t)hdf5_data.dimensions.x * (uint64_t)hdf5_data.dimensions.y * (uint64_t)hdf5_data.channels;
+            texIn->image2D(0, hdf5_data.gl_internal, hdf5_data.dimensions, 0, hdf5_data.gl_format, hdf5_data.gl_type, hdf5_data.data.data() + offset);
+
+            ImTextureID texID = ImTextureID(texIn->id());
+            ImGui::Image(texID, ImVec2(256, 256), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
+            ImGui::SameLine();
+            ImGui::BeginGroup();
+            ImGui::Text("Size: %i MB", (hdf5_data.bytes() / (1000 * 1000)));
+            ImGui::Text("Dimensions: %ix%ix%ix%i", hdf5_data.dimensions.x, hdf5_data.dimensions.y, hdf5_data.dimensions.z, hdf5_data.dimensions.w);
+            ImGui::Text("Channels: %i", hdf5_data.channels);
+            ImGui::EndGroup();
+          }
+        }
+        ImGui::EndChild();
+      }
+
+      ImGui::SameLine();
+      
+      {
+        ImGui::BeginChild("ChildBR", { ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().y }, false, window_flags);
+        if (ImGui::CollapsingHeader("Encoded Data")) {
+          if (texOut) {
+            uint64_t min = 0;
+            uint64_t max = (uint64_t)std::max(hdf5_encoded.dimensions.z * hdf5_encoded.dimensions.w - 1, 0);
+            ImGui::SliderScalar("Depth Slice##enc", ImGuiDataType_U64, &depth_enc, &min, &max);
+
+            uint64_t offset = depth_enc * (uint64_t)hdf5_encoded.bytes() / ((uint64_t)hdf5_encoded.dimensions.z * (uint64_t)hdf5_encoded.dimensions.w);
+            texOut->compressedImage2D(0, hdf5_encoded.gl_internal, glm::ivec2(hdf5_encoded.dimensions), 0, hdf5_encoded.bytes() / (hdf5_encoded.dimensions.z * hdf5_encoded.dimensions.w), hdf5_encoded.data.data() + offset);
+
+            ImTextureID texID = ImTextureID(texOut->id());
+            ImGui::Image(texID, ImVec2(256, 256), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
+            ImGui::SameLine();
+            ImGui::BeginGroup();
+            ImGui::Text("Size: %i MB", (hdf5_encoded.bytes() / (1000 * 1000)));
+            ImGui::Text("Dimensions: %ix%ix%ix%i", hdf5_encoded.dimensions.x, hdf5_encoded.dimensions.y, hdf5_encoded.dimensions.z, hdf5_encoded.dimensions.w);
+            ImGui::Text("Channels: %i", hdf5_encoded.channels);
+            ImGui::Text("Compression Ratio: %f.4%%", (float)hdf5_encoded.bytes() / std::max(hdf5_data.bytes(), (uint64_t)1));
+            ImGui::EndGroup();
+          }
+        }
+
+        ImGui::EndChild();
+      }
 
       ImGui::End();
 
-      //ImGui::ShowDemoWindow();
+      ImGui::ShowDemoWindow();
     };
   }
 
@@ -401,7 +438,8 @@ struct update_pass : texpress::render_pass
   int offset_x;
   int offset_y;
   int offset_z;
-  int depth_slice;
+  uint64_t depth_src;
+  uint64_t depth_enc;
   bool configuration_changed;
 
   uint64_t image_level;
