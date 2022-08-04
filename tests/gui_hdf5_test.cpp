@@ -12,6 +12,37 @@
 #define IMGUI_COLOR_HDFOTHER ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(252/255.f, 248/255.f, 232/255.f, 255/255.f))
 #define IMGUI_UNCOLOR ImGui::PopStyleColor()
 
+double average_error(texpress::Texture<float> tex_a, texpress::Texture<uint8_t> tex_b) {
+  double max_error = 0.0;
+  float min_error = INFINITY;
+  float error = 0.0;
+  uint64_t off_a = 0;
+  uint64_t off_b = 0;
+
+  nvtt::Surface surf_a;
+  nvtt::Surface surf_b;
+  for (uint64_t d = 0; d < tex_a.dimensions.z * tex_a.dimensions.w; d++) {
+    surf_a.setImage(nvtt::InputFormat_RGBA_32F, tex_a.dimensions.x, tex_a.dimensions.y, 1, tex_a.data.data() + off_a);
+    surf_b.setImage3D(nvtt::Format_BC6S, tex_b.dimensions.x, tex_b.dimensions.y, 1, tex_b.data.data() + off_b);
+
+    float e = nvtt::rmsError(surf_a, surf_b);
+    min_error = (e < min_error) ? e : min_error;
+    max_error = (e > max_error) ? e : max_error;
+    error += e;
+
+    off_a += d * (tex_a.bytes() / (tex_a.dimensions.z * tex_a.dimensions.w * sizeof(float)));
+    off_b += d * (tex_b.bytes() / (tex_a.dimensions.z * tex_a.dimensions.w * sizeof(uint8_t)));
+  }
+
+  error /= (tex_a.dimensions.z * tex_a.dimensions.w);
+
+  spdlog::info("Source vs Compressed data");
+  spdlog::info("Average RMSE: {0}", error);
+  spdlog::info("Maximum RMSE: {0}", max_error);
+  spdlog::info("Minimum RMSE: {0}", min_error);
+
+  return error;
+}
 
 void update(double dt) {
   // noop
@@ -269,6 +300,12 @@ struct update_pass : texpress::render_pass
           }
 
           texOut->image2D(0, hdf5_decoded.gl_internal, hdf5_decoded.dimensions, 0, hdf5_decoded.gl_format, hdf5_decoded.gl_type, hdf5_decoded.data.data());
+        }
+
+        if (ImGui::Button("Compare Source vs Compressed")) {
+          if (!hdf5_data.data.empty() && !hdf5_encoded.data.empty()) {
+            average_error(hdf5_data, hdf5_encoded);
+          }
         }
 
         // --> Quit
