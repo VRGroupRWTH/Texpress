@@ -10,8 +10,8 @@ namespace texpress {
   bool save_ktx(const uint8_t* data_ptr, const char* path, const glm::ivec4& dimensions, gl::GLenum gl_internal_format, uint64_t size, bool as_texture_array = false, bool save_monolithic = false);
 
   template <typename T>
-  bool save_ktx(Texture<T> input, const char* path, bool as_texture_array = false, bool save_monolithic = false) {
-    return save_ktx(reinterpret_cast<uint8_t*>(input.data.data()), path, input.dimensions, input.gl_internal, input.bytes(), as_texture_array, save_monolithic);
+  bool save_ktx(const Texture<T>& input, const char* path, bool as_texture_array = false, bool save_monolithic = false) {
+    return save_ktx(reinterpret_cast<const uint8_t*>(input.data.data()), path, input.dimensions, input.gl_internal, input.bytes(), as_texture_array, save_monolithic);
   }
 
   /*
@@ -124,6 +124,17 @@ namespace texpress {
     tex.gl_format = gl::GLenum(texture->glFormat);
     tex.gl_type = gl::GLenum(texture->glType);
     tex.channels = gl_channels(tex.gl_format);
+
+    char* pValue;
+    uint32_t valueLen;
+    if (KTX_SUCCESS == ktxHashList_FindValue(&texture->kvDataHead,
+      "Dimensions",
+      &valueLen, (void**)&pValue))
+    {
+      auto dimensions = *reinterpret_cast<glm::ivec4*>(pValue);
+      tex.dimensions.z = dimensions.z;
+      tex.dimensions.w = dimensions.w;
+    }
 
     tex.data.reserve(ktxTexture_GetDataSize(ktxTexture(texture)) / sizeof(T));
     uint64_t volume_elements = tex.data.capacity();

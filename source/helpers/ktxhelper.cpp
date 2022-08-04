@@ -45,6 +45,12 @@ namespace texpress {
     if (result)
       return false;
 
+    ktxHashList_Construct(&texture->kvDataHead);
+    result = ktxHashList_AddKVPair(&texture->kvDataHead, "Dimensions", sizeof(dimensions), &dimensions);
+
+    if (result)
+      return false;
+
     // Each iteration produces a seperate file
     uint64_t iterations = (monolithic) ? 1 : range.w;
 
