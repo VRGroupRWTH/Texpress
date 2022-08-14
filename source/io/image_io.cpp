@@ -8,8 +8,8 @@
 #include <tinyexr.h>
 
 namespace texpress {
-  image_ldr load_image(const char* path, int requested_channels) {
-    image_ldr image_ldr{};
+  image load_image(const char* path, int requested_channels) {
+    image image_ldr{};
     uint8_t* image_data = stbi_load(path, &image_ldr.size.x, &image_ldr.size.y, &image_ldr.channels, requested_channels);
     if (requested_channels != 0)
       image_ldr.channels = requested_channels;
@@ -22,22 +22,24 @@ namespace texpress {
     return image_ldr;
   }
 
-  image_hdr load_image_hdr(const char* path, int requested_channels) {
-    image_hdr image_ldr{};
-    float* image_data = stbi_loadf(path, &image_ldr.size.x, &image_ldr.size.y, &image_ldr.channels, requested_channels);
+  image load_image_hdr(const char* path, int requested_channels) {
+    image image_hdr{};
+    image_hdr.hdr = true;
+    float* image_data = stbi_loadf(path, &image_hdr.size.x, &image_hdr.size.y, &image_hdr.channels, requested_channels);
     if (requested_channels != 0)
-      image_ldr.channels = requested_channels;
+      image_hdr.channels = requested_channels;
 
     if (image_data) {
-      image_ldr.data.assign(image_data, image_data + image_ldr.size.x * image_ldr.size.y * image_ldr.channels);
+      image_hdr.data.assign(image_data, image_data + image_hdr.size.x * image_hdr.size.y * image_hdr.channels * sizeof(float));
       stbi_image_free(image_data);
     }
 
-    return image_ldr;
+    return image_hdr;
   }
 
-  image_hdr load_exr(const char* path) {
-    image_hdr image_ldr{};
+  image load_exr(const char* path) {
+    image image_hdr{};
+    image_hdr.hdr = true;
 
     // 1. Read EXR version.
     EXRVersion exr_version;
@@ -72,10 +74,10 @@ namespace texpress {
       }
     }
 
-    image_ldr.channels = exr_header.num_channels;
-    image_ldr.size.x = exr_header.data_window.max_x + 1 - exr_header.data_window.min_x;
-    image_ldr.size.y = exr_header.data_window.max_y + 1 - exr_header.data_window.min_y;
-    image_ldr.data.resize(image_ldr.size.x * image_ldr.size.y * image_ldr.channels);
+    image_hdr.channels = exr_header.num_channels;
+    image_hdr.size.x = exr_header.data_window.max_x + 1 - exr_header.data_window.min_x;
+    image_hdr.size.y = exr_header.data_window.max_y + 1 - exr_header.data_window.min_y;
+    image_hdr.data.resize(image_hdr.size.x * image_hdr.size.y * image_hdr.channels * sizeof(float));
 
     EXRImage exr_image;
     InitEXRImage(&exr_image);
@@ -94,10 +96,10 @@ namespace texpress {
 
     // Read exr_image.images into new image and reorder ABGR into RGBA
     float** image_ptr = (float**)exr_image.images;
-
-    for (int pixel = 0; pixel < image_ldr.size.x * image_ldr.size.y; pixel++) {
-      for (int c = 0; c < image_ldr.channels; c++) {
-        image_ldr.data[image_ldr.channels * pixel + c] = image_ptr[image_ldr.channels - 1 - c][pixel];
+    float* hdr_ptr = (float*)image_hdr.data.data();
+    for (int pixel = 0; pixel < image_hdr.size.x * image_hdr.size.y; pixel++) {
+      for (int c = 0; c < image_hdr.channels; c++) {
+        hdr_ptr[image_hdr.channels * pixel + c] = image_ptr[image_hdr.channels - 1 - c][pixel];
       }
     }
 
@@ -105,11 +107,11 @@ namespace texpress {
     FreeEXRImage(&exr_image);
     FreeEXRHeader(&exr_header);
 
-    return image_ldr;
+    return image_hdr;
   }
 
-  Texture<float> load_exr_tex(const char* path) {
-    Texture<float> tex{};
+  Texture load_exr_tex(const char* path) {
+    Texture tex{};
 
     // 1. Read EXR version.
     EXRVersion exr_version;
@@ -171,7 +173,7 @@ namespace texpress {
 
     // Read exr_image.images into new image and reorder ABGR into RGBA
     float** image_ptr = (float**)exr_image.images;
-
+    float* tex_ptr = (float*)tex.data.data();
     int r = -1;
     int g = -1;
     int b = -1;
@@ -179,7 +181,7 @@ namespace texpress {
 
     for (int pixel = 0; pixel < tex.dimensions.x * tex.dimensions.y * tex.dimensions.z * tex.dimensions.w; pixel++) {
       for (int c = 0; c < tex.channels; c++) {
-        tex.data[tex.channels * pixel + c] = image_ptr[tex.channels - 1 - c][pixel];
+        tex_ptr[tex.channels * pixel + c] = image_ptr[tex.channels - 1 - c][pixel];
       }
     }
 
@@ -204,14 +206,14 @@ namespace texpress {
     return true;
   }
 
-  bool save_hdr(const char* path, const float* data_ptr, glm::ivec2 size, int channels) {
+  bool save_hdr(const char* path, const uint8_t* data_ptr, glm::ivec2 size, int channels) {
     if (data_ptr)
-      return stbi_write_hdr((std::string(path) + ".hdr").c_str(), size.x, size.y, channels, data_ptr);
+      return stbi_write_hdr((std::string(path) + ".hdr").c_str(), size.x, size.y, channels, (float*)data_ptr);
 
     return true;
   }
 
-  bool save_exr_bgr(const char* path, const float* data_ptr, glm::ivec2 size, int channels) {
+  bool save_exr_bgr(const char* path, const uint8_t* data_ptr, glm::ivec2 size, int channels) {
     EXRHeader header;
     InitEXRHeader(&header);
 
@@ -220,6 +222,8 @@ namespace texpress {
 
     image_ldr.num_channels = 3;
 
+    const float* f_ptr = (const float*)data_ptr;
+
     std::vector<float> images[3];
     images[0].resize(size.x * size.y);
     images[1].resize(size.x * size.y);
@@ -227,9 +231,9 @@ namespace texpress {
 
     // Split RGBRGBRGB... into R, G and B layer
     for (int i = 0; i < size.x * size.y; i++) {
-      images[0][i] = data_ptr[3 * i + 0];
-      images[1][i] = data_ptr[3 * i + 1];
-      images[2][i] = data_ptr[3 * i + 2];
+      images[0][i] = f_ptr[3 * i + 0];
+      images[1][i] = f_ptr[3 * i + 1];
+      images[2][i] = f_ptr[3 * i + 2];
     }
 
     float* image_ptr[3];
@@ -269,7 +273,7 @@ namespace texpress {
     free(header.requested_pixel_types);
   }
 
-  bool save_exr(const char* path, const float* data_ptr, glm::ivec2 size, int channels, const std::string order) {
+  bool save_exr(const char* path, const uint8_t* data_ptr, glm::ivec2 size, int channels, const std::string order) {
     EXRHeader header;
     InitEXRHeader(&header);
 
@@ -280,6 +284,8 @@ namespace texpress {
       fprintf(stderr, "Save EXR err: Invalid channel order\n");
       return {};
     }
+
+    const float* f_ptr = (const float*)data_ptr;
 
     char chan0 = (channels >= 1) ? char(order.at(0)) : '\0';
     char chan1 = (channels >= 2) ? char(order.at(1)) : '\0';
@@ -300,9 +306,10 @@ namespace texpress {
     if (channels >= 4)
       images[3].resize(img.width * img.height);
 
+
     for (int pixel = 0; pixel < img.width * img.height; pixel++) {
       for (int c = 0; c < img.num_channels; c++) {
-        images[c][pixel] = data_ptr[channels * pixel + c];
+        images[c][pixel] = f_ptr[channels * pixel + c];
       }
     }
 
@@ -352,7 +359,7 @@ namespace texpress {
     return true;
   }
 
-  bool save_exr(const char* path, const float* data_ptr, glm::ivec4 size, int channels, const std::string order) {
+  bool save_exr(const char* path, const uint8_t* data_ptr, glm::ivec4 size, int channels, const std::string order) {
     EXRHeader header;
     InitEXRHeader(&header);
 
@@ -363,6 +370,8 @@ namespace texpress {
       fprintf(stderr, "Save EXR err: Invalid channel order\n");
       return {};
     }
+
+    const float* f_ptr = (const float*)data_ptr;
 
     char chan0 = (channels >= 1) ? char(order.at(0)) : '\0';
     char chan1 = (channels >= 2) ? char(order.at(1)) : '\0';
@@ -413,7 +422,7 @@ namespace texpress {
 
         for (int pixel = 0; pixel < img.width * img.height; pixel++) {
           for (int c = 0; c < img.num_channels; c++) {
-            images[c][pixel] = data_ptr[data_offset + channels * pixel + c];
+            images[c][pixel] = f_ptr[data_offset + channels * pixel + c];
           }
         }
 
@@ -445,10 +454,10 @@ namespace texpress {
   }
 
 
-  bool save_jpg(const char* path, const image_ldr& img, int quality) { return save_jpg(path, img.data.data(), img.size, img.channels, quality); }
-  bool save_png(const char* path, const image_ldr& img) { return save_png(path, img.data.data(), img.size, img.channels); }
-  bool save_hdr(const char* path, const image_hdr& img) { return save_hdr(path, img.data.data(), img.size, img.channels); }
-  bool save_exr_bgr(const char* path, const image_hdr& img) { return save_exr_bgr(path, img.data.data(), img.size, img.channels); }
-  bool save_exr(const char* path, const image_hdr& img, const std::string order) { return save_exr(path, img.data.data(), img.size, img.channels, order); }
-  bool save_exr(const char* path, const Texture<float>& img, const std::string order) { return save_exr(path, img.data.data(), img.dimensions, img.channels); }
+  bool save_jpg(const char* path, const image& img, int quality) { return save_jpg(path, img.data.data(), img.size, img.channels, quality); }
+  bool save_png(const char* path, const image& img) { return save_png(path, img.data.data(), img.size, img.channels); }
+  bool save_hdr(const char* path, const image& img) { return save_hdr(path, img.data.data(), img.size, img.channels); }
+  bool save_exr_bgr(const char* path, const image& img) { return save_exr_bgr(path, img.data.data(), img.size, img.channels); }
+  bool save_exr(const char* path, const image& img, const std::string order) { return save_exr(path, img.data.data(), img.size, img.channels, order); }
+  bool save_exr(const char* path, const Texture& img, const std::string order) { return save_exr(path, img.data.data(), img.dimensions, img.channels); }
 }

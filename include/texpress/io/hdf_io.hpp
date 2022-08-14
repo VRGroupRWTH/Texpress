@@ -55,10 +55,25 @@ namespace texpress
     hdf5& operator=(const hdf5& that) = delete;
     hdf5& operator=(hdf5&& temp) = delete;
 
+    /* =========================================================================*/
+    /*                             Getter / Setter
+    /* =========================================================================*/
+    // Returns a vector of dynamic size, containing the size of each dimension
+    std::vector<std::size_t> get_grid(const char* dataset, bool desc_order = false);
+    // Returns a vector of size 4, containing the size of each dimension and a fillvalue to fill up to 4 elements
+    std::vector<std::size_t> get_grid_fixsize(const char* dataset, bool desc_order = false, std::size_t fillvalue = 1);
+    // Returns the dimension of the grid
+    std::size_t              get_grid_dim(const char* dataset);
+    // Returns the dimension of the grids elements (1 => scalar, (1, inf) => vector)
+    std::size_t              get_vec_len(const char* dataset);
+
+    /* =========================================================================*/
+    /*                             I/O
+    /* =========================================================================*/
     template <typename T>
-    bool read_datasets(std::vector<const char*> paths, std::vector<uint64_t> offsets, std::vector<uint64_t> strides, std::vector<T>& input) {
+    bool read_datasets(std::vector<const char*> paths, std::vector<uint64_t> offsets, std::vector<uint64_t> strides, std::vector<int> xyzt_hdf_indices, std::vector<uint8_t>& input) {
       auto dataset = file->getDataSet(paths[0]);
-      auto dimensions = dataset.getDimensions();
+      auto dimensions = get_grid_fixsize(paths[0]);
       auto element_space = paths.size();
       std::vector<uint64_t> elements;
       uint64_t elements_flat = 0;
@@ -79,7 +94,8 @@ namespace texpress
         elements_flat += elements.back();
       }
 
-      input.resize(elements_flat);
+      input.resize(elements_flat * sizeof(T));
+      T* input_ptr = (T*)input.data();
       std::vector<T> slice(*std::max_element(elements.begin(), elements.end()));
 
       // Fill buffer
@@ -104,7 +120,7 @@ namespace texpress
 
         // Copy to correct positions in input buffer
         for (uint64_t k = 0; k < elements[i]; k++) {
-          input[i + k * element_space] = std::move(slice[k]);
+          input_ptr[i + k * element_space] = std::move(slice[k]);
         }
       }
       
@@ -158,6 +174,5 @@ namespace texpress
   private:
     HighFive::File* file;
     const char* filepath;
-
   };
 }

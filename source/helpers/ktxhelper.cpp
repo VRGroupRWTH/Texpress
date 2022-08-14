@@ -1,6 +1,10 @@
 #pragma once
 #include <texpress/helpers/ktxhelper.hpp>
+#include <texpress/utility/stringtools.hpp>
 #include <string>
+#include <ktx.h>
+#include <fp16.h>
+
 
 namespace texpress {
   bool save_ktx(const uint8_t* data_ptr, const char* path, const glm::ivec4& dimensions, gl::GLenum gl_internal_format, uint64_t size, bool as_texture_array, bool save_monolithic) {
@@ -92,5 +96,86 @@ namespace texpress {
     ktxTexture_Destroy(ktxTexture(texture));
 
     return true;
+  }
+
+
+
+  void load_ktx(const char* path, uint8_t* data_ptr, uint8_t& channels, glm::ivec4& dimensions, gl::GLenum& gl_internal, gl::GLenum& gl_format, gl::GLenum& gl_type) {
+    ktxTexture1* texture;
+    KTX_error_code result;
+
+    result = ktxTexture_CreateFromNamedFile(path,
+      KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
+      &ktxTexture(texture));
+
+    if (result)
+      return;
+
+    dimensions.x = texture->baseWidth;
+    dimensions.y = texture->baseHeight;
+    dimensions.z = (texture->isArray) ? texture->numLayers : texture->baseDepth;
+    dimensions.w = 1;
+    gl_internal = gl::GLenum(texture->glInternalformat);
+    gl_format = gl::GLenum(texture->glFormat);
+    gl_type = gl::GLenum(texture->glType);
+    channels = gl_channels(gl_format);
+
+    char* pValue;
+    uint32_t valueLen;
+    if (KTX_SUCCESS == ktxHashList_FindValue(&texture->kvDataHead,
+      "Dimensions",
+      &valueLen, (void**)&pValue))
+    {
+      auto dimensions = *reinterpret_cast<glm::ivec4*>(pValue);
+      dimensions.z = dimensions.z;
+      dimensions.w = dimensions.w;
+    }
+
+    uint64_t bytes = ktxTexture_GetDataSize(ktxTexture(texture));
+    uint64_t bytes_slice = bytes / (dimensions.z * dimensions.w);
+    // 2D Array
+    if (texture->isArray) {
+      for (uint64_t z = 0; z < texture->numLayers; z++) {
+        ktx_size_t offset;
+
+        result = ktxTexture_GetImageOffset(ktxTexture(texture), 0, z, 0, &offset);
+        uint8_t* imageData = ktxTexture_GetData(ktxTexture(texture)) + offset;
+        //std::memcpy(data_ptr + offset, imageData, bytes_slice);
+        for (uint32_t b = 0; b < bytes_slice; b++) {
+          data_ptr[b + offset] = imageData[b];
+        }
+      }
+    }
+    // 3D Texture
+    else {
+      uint8_t* imageData = ktxTexture_GetData(ktxTexture(texture));
+      std::memcpy(data_ptr, imageData, bytes);
+    }
+
+    ktxTexture_Destroy(ktxTexture(texture));
+  }
+
+  uint64_t ktx_size(const char* path) {
+    ktxTexture1* texture;
+    KTX_error_code result;
+
+    result = ktxTexture_CreateFromNamedFile(path,
+      KTX_TEXTURE_CREATE_NO_FLAGS,
+      &ktxTexture(texture));
+
+    if (result) {
+      return 0;
+    }
+
+    return ktxTexture_GetDataSize(ktxTexture(texture));
+  }
+
+  bool save_ktx(const Texture& input, const char* path, bool as_texture_array, bool save_monolithic) {
+    return save_ktx(input.data.data(), path, input.dimensions, input.gl_internal, input.bytes(), as_texture_array, save_monolithic);
+  }
+
+  void load_ktx(const char* path, Texture& tex) {
+    tex.data.resize(ktx_size(path));
+    load_ktx(path, tex.data.data(), tex.channels, tex.dimensions, tex.gl_internal, tex.gl_format, tex.gl_type);
   }
 }

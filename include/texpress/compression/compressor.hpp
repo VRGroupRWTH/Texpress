@@ -51,14 +51,9 @@ namespace texpress
   public:
     static uint64_t decoded_size(const EncoderData& input, bool hdr = true);
     static uint64_t encoded_size(const EncoderSettings& settings, const EncoderData& input);
-    static bool populate_EncoderData(EncoderData& enc_data, Texture<float>& tex_input);
-    static bool populate_EncoderData(EncoderData& enc_data, Texture<uint8_t>& tex_input);
-    static bool populate_EncoderData(EncoderData& enc_data, image_ldr& img_input);
-    static bool populate_EncoderData(EncoderData& enc_data, image_hdr& img_input);
-
-    static bool populate_Texture(Texture<float>& tex, EncoderData& enc_data);
-    static bool populate_Texture(Texture<uint8_t>& tex, EncoderData& enc_data);
-
+    static bool populate_EncoderData(EncoderData& enc_data, Texture& tex_input);
+    static bool populate_EncoderData(EncoderData& enc_data, image& img_input);
+    static bool populate_Texture(Texture& tex, EncoderData& enc_data);
     static bool populate_Image(image& img, EncoderData& enc_data);
 
     static void initialize_buffer(std::vector<uint8_t>& buffer, const EncoderSettings& settings, const EncoderData& input) {
@@ -87,7 +82,9 @@ namespace texpress
 
     bool compress(const EncoderSettings& settings, const EncoderData& input, EncoderData& output);
     bool decompress(const EncoderData& input, EncoderData& output);
+    bool decompress(const EncoderData& input, EncoderData& output, uint64_t slice);
     bool decompress(const nvtt::Format encoding, const EncoderData& input, EncoderData& output);
+    bool decompress(const nvtt::Format encoding, const EncoderData& input, EncoderData& output, uint64_t slice);
 
     //static Texture<uint8_t> compress_bc6h_nvtt(const Texture<float>& input);
     //static Texture<float> decompress_bc6h_nvtt(const Texture<uint8_t>& input);

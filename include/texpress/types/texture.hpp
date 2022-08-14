@@ -8,9 +8,8 @@
 
 namespace texpress
 {
-  template <typename T>
   struct Texture {
-    std::vector<T> data;          // databuffer
+    std::vector<uint8_t> data;          // databuffer
     uint8_t channels = 0;
     glm::ivec4 dimensions = glm::ivec4(0);         // extents of each grid dimension
     gl::GLenum gl_type = gl::GLenum::GL_NONE;           // data type (unsigned int, float, ...) as glenum
@@ -18,8 +17,46 @@ namespace texpress
     gl::GLenum gl_format = gl::GLenum::GL_NONE;
     glm::ivec3 enc_blocksize = glm::ivec3(0);     // extents of block dimensions (ignored for uncompressed)
 
-    uint64_t bytes() const { return data.size() * sizeof(T); }
-    uint64_t bytes_type() const { return sizeof(T); }
+    uint64_t bytes() const { 
+      return data.size();
+    }
+
+    uint64_t bytes_type() const {
+      switch (gl_type) {
+      case gl::GLenum::GL_ZERO:
+      case gl::GLenum::GL_BYTE:
+      case gl::GLenum::GL_UNSIGNED_BYTE:
+        return 1;
+      case gl::GLenum::GL_SHORT:
+      case gl::GLenum::GL_UNSIGNED_SHORT:
+      case gl::GLenum::GL_HALF_FLOAT:
+        return 2;
+      case gl::GLenum::GL_INT:
+      case gl::GLenum::GL_UNSIGNED_INT:
+      case gl::GLenum::GL_FLOAT:
+        return 4;
+      case gl::GLenum::GL_DOUBLE:
+        return 8;
+      }
+
+      // If not covered
+      return 0;
+    }
+
+    bool compressed() const {
+      int decimal = (int)gl_internal;
+      // BC6H (and some other irrelevant compressions)
+      if (decimal >= 36283 && decimal <= 36495) {
+        return true;
+      }
+
+      // ASTC
+      if (decimal >= 37808 && decimal <= 37853) {
+        return true;
+      }
+
+      return false;
+    }
   };
 
   inline gl::GLenum gl_format(int channels) {
@@ -54,9 +91,15 @@ namespace texpress
     return 4;
   }
 
-  inline bool gl_compressed(gl::GLenum gl_format) {
-    switch (gl_format) {
-    case gl::GLenum::GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT: case gl::GLenum::GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT:
+  inline bool gl_compressed(gl::GLenum gl_internal) {
+    int decimal = (int)gl_internal;
+    // BC6H (and some other irrelevant compressions)
+    if (decimal >= 36283 && decimal <= 36495) {
+      return true;
+    }
+
+    // ASTC
+    if (decimal >= 37808 && decimal <= 37853) {
       return true;
     }
 
@@ -136,5 +179,32 @@ namespace texpress
         }
       }
     }
-  };
+  }
+
+  inline gl::GLenum gl_type(gl::GLenum gl_internal) {
+    switch (gl_internal) {
+    case gl::GLenum::GL_R8:
+    case gl::GLenum::GL_RG8:
+    case gl::GLenum::GL_RGB8:
+    case gl::GLenum::GL_RGBA8:
+      return gl::GLenum::GL_UNSIGNED_BYTE;
+    case gl::GLenum::GL_R16F:
+    case gl::GLenum::GL_RG16F:
+    case gl::GLenum::GL_RGB16F:
+    case gl::GLenum::GL_RGBA16F:
+      return gl::GLenum::GL_HALF_FLOAT;
+    case gl::GLenum::GL_R32F:
+    case gl::GLenum::GL_RG32F:
+    case gl::GLenum::GL_RGB32F:
+    case gl::GLenum::GL_RGBA32F:
+      return gl::GLenum::GL_FLOAT;
+    case gl::GLenum::GL_R32I:
+    case gl::GLenum::GL_RG32I:
+    case gl::GLenum::GL_RGB32I:
+    case gl::GLenum::GL_RGBA32I:
+      return gl::GLenum::GL_INT;
+    }
+
+    return gl::GLenum::GL_ZERO;
+  }
 }

@@ -3,7 +3,7 @@
 #include <tiny_gltf.h>
 
 namespace texpress {
-  Texture<uint8_t*> load_gltf_binary(const char* path) {
+  Texture load_gltf_binary(const char* path) {
     tinygltf::Model model;
     tinygltf::TinyGLTF loader;
     std::string err;
@@ -27,14 +27,14 @@ namespace texpress {
     return {};
   }
 
-  bool save_gltf_binary(const char* path, const Texture<float>& input) {
+  bool save_gltf_binary(const char* path, const Texture& input) {
     tinygltf::Model model;
     tinygltf::TinyGLTF loader;
     std::string err;
     std::string warn;
 
     tinygltf::Buffer buffer;
-    buffer.data.assign(reinterpret_cast<const uint8_t*>(input.data.data()), reinterpret_cast<const uint8_t*>(input.data.data()) + input.bytes());
+    buffer.data.assign(input.data.data(), input.data.data() + input.bytes());
 
     tinygltf::BufferView view;
     view.buffer = 0;

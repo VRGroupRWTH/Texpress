@@ -1,48 +1,184 @@
 #include <catch2/catch_all.hpp>
 #include <texpress/api.hpp>
+#include <texpress/utility/normalize.hpp>
 
 #include <iostream>
 #include <filesystem>
 #include <spdlog/spdlog.h>
 #include <thread>
 #include <future>
+#include <fp16.h>
 
 #define IMGUI_COLOR_HDFGROUP ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(148/255.f, 180/255.f, 159/255.f, 255/255.f))
 #define IMGUI_COLOR_HDFDATASET ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(206/255.f, 229/255.f, 208/255.f, 255/255.f))
 #define IMGUI_COLOR_HDFOTHER ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(252/255.f, 248/255.f, 232/255.f, 255/255.f))
 #define IMGUI_UNCOLOR ImGui::PopStyleColor()
 
-double average_error(texpress::Texture<float> tex_a, texpress::Texture<uint8_t> tex_b) {
-  double max_error = 0.0;
-  float min_error = INFINITY;
-  float error = 0.0;
+double average_error(const texpress::Texture& tex_a, texpress::Texture& tex_b, texpress::Encoder* enc) {
+  glm::dvec4 max_err(0.0);
+  glm::dvec4 min_err(INFINITY);
+  glm::dvec4 error(0.0);
   uint64_t off_a = 0;
   uint64_t off_b = 0;
+  uint64_t n = 0;
 
-  nvtt::Surface surf_a;
-  nvtt::Surface surf_b;
-  for (uint64_t d = 0; d < tex_a.dimensions.z * tex_a.dimensions.w; d++) {
-    surf_a.setImage(nvtt::InputFormat_RGBA_32F, tex_a.dimensions.x, tex_a.dimensions.y, 1, tex_a.data.data() + off_a);
-    surf_b.setImage3D(nvtt::Format_BC6S, tex_b.dimensions.x, tex_b.dimensions.y, 1, tex_b.data.data() + off_b);
+  texpress::Texture* slice{};
 
-    float e = nvtt::rmsError(surf_a, surf_b);
-    min_error = (e < min_error) ? e : min_error;
-    max_error = (e > max_error) ? e : max_error;
-    error += e;
-
-    off_a += d * (tex_a.bytes() / (tex_a.dimensions.z * tex_a.dimensions.w * sizeof(float)));
-    off_b += d * (tex_b.bytes() / (tex_a.dimensions.z * tex_a.dimensions.w * sizeof(uint8_t)));
+  if (tex_b.compressed()) {
+    slice = new texpress::Texture();
+  }
+  else {
+    slice = &tex_b;
   }
 
-  error /= (tex_a.dimensions.z * tex_a.dimensions.w);
+  for (uint64_t d = 0; d < tex_a.dimensions.z * tex_a.dimensions.w; d++) {
+    if (tex_b.compressed()) {
+      texpress::EncoderData input{};
+      texpress::Encoder::populate_EncoderData(input, tex_b);
+
+      texpress::EncoderData output{};
+      output.data_bytes = texpress::Encoder::decoded_size(input) / (tex_a.dimensions.z * tex_a.dimensions.w);
+      slice->data.resize(output.data_bytes);
+      output.data_ptr = slice->data.data();
+
+      enc->decompress(input, output, d);
+      texpress::Encoder::populate_Texture(*slice, output);
+    }
+
+    for (uint64_t p = 0; p < tex_a.dimensions.x * tex_a.dimensions.y; p++) {
+      glm::vec4 vec_a(0.0f, 0.0f, 0.0f, 1.0f);
+      glm::vec4 vec_b(vec_a);
+
+      for (int c = 0; c < tex_a.channels; c++) {
+        vec_a[c] = tex_a.data[off_a + p * tex_a.channels + c];
+      }
+
+      for (int c = 0; c < slice->channels; c++) {
+        vec_b[c] = slice->data[p * slice->channels + c];
+      }
+
+      // Avg Error
+      auto diff = glm::abs(vec_a - vec_b);
+      for (int i = 0; i < 4; i++) {
+        max_err[i] = (diff[i] > max_err[i]) ? diff[i] : max_err[i];
+        min_err[i] = (diff[i] < min_err[i]) ? diff[i] : min_err[i];
+      }
+
+      error += diff;
+      n++;
+    }
+
+    off_a += (uint64_t)tex_a.bytes() / (tex_a.dimensions.z * tex_a.dimensions.w * sizeof(float));
+  }
+
+  error /= (double)n;
 
   spdlog::info("Source vs Compressed data");
-  spdlog::info("Average RMSE: {0}", error);
-  spdlog::info("Maximum RMSE: {0}", max_error);
-  spdlog::info("Minimum RMSE: {0}", min_error);
+  spdlog::info("Average: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", error.x, error.y, error.z, error.w);
+  spdlog::info("Maximum: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", max_err.x, max_err.y, max_err.z, max_err.w);
+  spdlog::info("Minimum: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", min_err.x, min_err.y, min_err.z, min_err.w);
 
-  return error;
+  if (tex_b.compressed()) {
+    delete slice;
+  }
+  
+  return glm::length(error)/4.0;
 }
+
+/*
+double average_error(texpress::Texture<float> tex_a, texpress::Texture<uint16_t> tex_b, texpress::Encoder* enc) {
+  glm::dvec4 max_err(0.0);
+  glm::dvec4 min_err(INFINITY);
+  glm::dvec4 error(0.0);
+  uint64_t off_a = 0;
+  uint64_t off_b = 0;
+  uint64_t n = 0;
+
+  for (uint64_t d = 0; d < tex_a.dimensions.z * tex_a.dimensions.w; d++) {
+    for (uint64_t p = 0; p < tex_a.dimensions.x * tex_a.dimensions.y; p++) {
+      glm::vec4 vec_a(0.0f, 0.0f, 0.0f, 1.0f);
+      glm::vec4 vec_b(vec_a);
+
+      for (int c = 0; c < tex_a.channels; c++) {
+        vec_a[c] = tex_a.data[off_a + p * tex_a.channels + c];
+      }
+
+      for (int c = 0; c < tex_b.channels; c++) {
+        vec_b[c] = fp16_ieee_to_fp32_value(tex_b.data[off_b + p * tex_b.channels + c]);
+      }
+
+      // Avg Error
+      auto diff = glm::abs(vec_a - vec_b);
+      for (int i = 0; i < 4; i++) {
+        max_err[i] = (diff[i] > max_err[i]) ? diff[i] : max_err[i];
+        min_err[i] = (diff[i] < min_err[i]) ? diff[i] : min_err[i];
+      }
+
+      error += diff;
+      n++;
+    }
+
+    off_a += (uint64_t)tex_a.bytes() / (tex_a.dimensions.z * tex_a.dimensions.w * sizeof(float));
+    off_b += (uint64_t)tex_b.bytes() / (tex_b.dimensions.z * tex_b.dimensions.w * sizeof(uint16_t));
+  }
+
+  error /= (double)n;
+
+  spdlog::info("Source vs Compressed data");
+  spdlog::info("Average: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", error.x, error.y, error.z, error.w);
+  spdlog::info("Maximum: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", max_err.x, max_err.y, max_err.z, max_err.w);
+  spdlog::info("Minimum: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", min_err.x, min_err.y, min_err.z, min_err.w);
+
+  return glm::length(error) / 4.0;
+}
+
+
+double average_error(texpress::Texture<float> tex_a, texpress::Texture<float> tex_b, texpress::Encoder* enc) {
+  glm::dvec4 max_err(0.0);
+  glm::dvec4 min_err(INFINITY);
+  glm::dvec4 error(0.0);
+  uint64_t off_a = 0;
+  uint64_t off_b = 0;
+  uint64_t n = 0;
+
+  for (uint64_t d = 0; d < tex_a.dimensions.z * tex_a.dimensions.w; d++) {
+    for (uint64_t p = 0; p < tex_a.dimensions.x * tex_a.dimensions.y; p++) {
+      glm::vec4 vec_a(0.0f, 0.0f, 0.0f, 1.0f);
+      glm::vec4 vec_b(vec_a);
+
+      for (int c = 0; c < tex_a.channels; c++) {
+        vec_a[c] = tex_a.data[off_a + p * tex_a.channels + c];
+      }
+
+      for (int c = 0; c < tex_b.channels; c++) {
+        vec_b[c] = tex_b.data[off_b + p * tex_b.channels + c];
+      }
+
+      // Avg Error
+      auto diff = glm::abs(vec_a - vec_b);
+      for (int i = 0; i < 4; i++) {
+        max_err[i] = (diff[i] > max_err[i]) ? diff[i] : max_err[i];
+        min_err[i] = (diff[i] < min_err[i]) ? diff[i] : min_err[i];
+      }
+
+      error += diff;
+      n++;
+    }
+
+    off_a += (uint64_t)tex_a.bytes() / (tex_a.dimensions.z * tex_a.dimensions.w * sizeof(float));
+    off_b += (uint64_t)tex_b.bytes() / (tex_b.dimensions.z * tex_b.dimensions.w * sizeof(float));
+  }
+
+  error /= (double)n;
+
+  spdlog::info("Source vs Compressed data");
+  spdlog::info("Average: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", error.x, error.y, error.z, error.w);
+  spdlog::info("Maximum: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", max_err.x, max_err.y, max_err.z, max_err.w);
+  spdlog::info("Minimum: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", min_err.x, min_err.y, min_err.z, min_err.w);
+
+  return glm::length(error) / 4.0;
+}
+*/
 
 void update(double dt) {
   // noop
@@ -59,6 +195,8 @@ struct update_pass : texpress::render_pass
     , t_prev(0.0)
     , lag(0.0)
     , buf_path("")
+    , save_path ("")
+    , load_path("")
     , buf_x("/u")
     , buf_y("/v")
     , buf_z("/w")
@@ -68,12 +206,19 @@ struct update_pass : texpress::render_pass
     , offset_x(0)
     , offset_y(0)
     , offset_z(0)
-    , texIn(nullptr)
-    , texOut(nullptr)
+    , gl_tex_in(globjects::Texture::createDefault())
+    , gl_tex_out(globjects::Texture::createDefault())
     , hdf5_file(nullptr)
-    , hdf5_data()
+    , tex_source()
+    , tex_normalized()
+    , tex_encoded()
+    , tex_decoded()
+    , tex_in(&tex_source)
+    , tex_out(&tex_source)
     , depth_src(0)
     , depth_enc(0)
+    , sync_sliders(false)
+    , peaks()
   {
     on_prepare = [&] ( )
     {
@@ -195,117 +340,316 @@ struct update_pass : texpress::render_pass
           file.read_datasets<float>({ buf_x, buf_y, buf_z }
                                     , { uint64_t(offset_x), uint64_t(offset_y), uint64_t(offset_z) }
                                     , { uint64_t(stride_x), uint64_t(stride_y), uint64_t(stride_z) }
-                                    , hdf5_data.data);
-          //texpress::interleave_force(hdf5_data.data, 4, hdf5_data.data.size() / 3, 1.0f);
-          //texpress::add_channel(hdf5_data.data, 3, 1.0f);
-          hdf5_data.channels = 3;
-          auto dims = file.dataset_dimensions(buf_x);
-          for (int i = 0; i < hdf5_data.dimensions.length(); i++) {
-            hdf5_data.dimensions[i] = (i < dims.size()) ? dims[i] : 1;
-          }
-          hdf5_data.gl_internal = texpress::gl_internal(hdf5_data.channels, hdf5_data.bytes_type() * 8, hdf5_data.bytes_type() >= 4);
-          hdf5_data.gl_format = texpress::gl_format(hdf5_data.channels);
-          hdf5_data.gl_type = gl::GLenum::GL_FLOAT;
+                                    , { 2, 1, 0 }
+                                    , tex_source.data);
+          tex_source.channels = file.get_vec_len(buf_x);
 
-          texIn = globjects::Texture::createDefault();
-          texIn->image2D(0, hdf5_data.gl_internal, hdf5_data.dimensions, 0, hdf5_data.gl_format, hdf5_data.gl_type, hdf5_data.data.data());
+          auto dims = file.dataset_dimensions(buf_x);
+          for (int i = 0; i < tex_source.dimensions.length(); i++) {
+            tex_source.dimensions[i] = (i < dims.size()) ? dims[i] : 1;
+          }
+
+          tex_source.gl_internal = texpress::gl_internal(tex_source.channels, 32, true);
+          tex_source.gl_format = texpress::gl_format(tex_source.channels);
+          tex_source.gl_type = gl::GLenum::GL_FLOAT;
+
+          tex_in = &tex_source;
 
           configuration_changed = false;
         }
 
+        if (ImGui::Button("Normalize Source")) {
+          tex_normalized.channels = tex_source.channels;
+          tex_normalized.dimensions = tex_source.dimensions;
+          tex_normalized.gl_format = tex_source.gl_format;
+          tex_normalized.gl_internal = tex_source.gl_internal;
+          tex_normalized.gl_type = gl::GLenum::GL_FLOAT;
+          tex_normalized.data.resize(tex_source.bytes());
+          peaks = texpress::find_peaks_per_component<float>(tex_source);
+          float* src_ptr = (float*)tex_source.data.data();
+          float* norm_ptr = (float*)tex_normalized.data.data();
+          uint64_t id = 0;
+          for (uint64_t d = 0; d < tex_normalized.dimensions.z; d++) {
+            for (uint64_t p = 0; p < tex_normalized.dimensions.x * tex_normalized.dimensions.y; p++) {
+              for (int c = 0; c < tex_normalized.channels; c++) {
+                norm_ptr[id] = texpress::normalize_val_per_component(src_ptr[id], tex_source.channels, peaks, d, c);
+                id++;
+              }
+            }
+          }
 
-        if (ImGui::Button("Compress BC6H") && !hdf5_data.data.empty()) {
+          tex_out = &tex_normalized;
+        }
+
+        if (ImGui::Button("Denormalize Source") && !tex_normalized.data.empty()) {
+          tex_decoded.channels = tex_normalized.channels;
+          tex_decoded.dimensions = tex_normalized.dimensions;
+          tex_decoded.gl_format = tex_normalized.gl_format;
+          tex_decoded.gl_internal = tex_normalized.gl_internal;
+          tex_decoded.gl_type = tex_normalized.gl_type;
+          tex_decoded.data.resize(tex_normalized.bytes());
+
+          float* norm_ptr = (float*)tex_normalized.data.data();
+          float* dec_ptr = (float*)tex_decoded.data.data();
+          uint64_t id = 0;
+          for (uint64_t d = 0; d < tex_decoded.dimensions.z; d++) {
+            for (uint64_t p = 0; p < tex_decoded.dimensions.x * tex_decoded.dimensions.y; p++) {
+              for (int c = 0; c < tex_decoded.channels; c++) {
+                dec_ptr[id] = texpress::denormalize_per_component(norm_ptr[id], tex_normalized.channels, peaks, d, c);
+
+                id++;
+              }
+            }
+          }
+
+          tex_out = &tex_decoded;
+        }
+
+        static const std::vector<char*> compress_options = {"Fast", "Medium", "Production", "Highest"};
+        static int compress_selected = 0;
+
+        static bool compress_normalized = false;
+        if (ImGui::Button("Compress BC6H") && !tex_source.data.empty()) {
           texpress::EncoderSettings settings{};
           settings.use_weights = false;
-          settings.encoding = nvtt::Format::Format_BC6S;
-          settings.quality = nvtt::Quality::Quality_Fastest;
+
+          if (peaks.empty()) {
+            compress_normalized = false;
+          }
+
+          if (compress_normalized) {
+            settings.encoding = nvtt::Format::Format_BC6U;
+          }
+          else {
+            settings.encoding = nvtt::Format::Format_BC6S;
+          }
+
+          switch (compress_selected) {
+          case 0:
+            settings.quality = nvtt::Quality::Quality_Fastest;
+            break;
+          case 1:
+            settings.quality = nvtt::Quality::Quality_Normal;
+            break;
+          case 2:
+            settings.quality = nvtt::Quality::Quality_Production;
+            break;
+          case 3:
+            settings.quality = nvtt::Quality::Quality_Highest;
+            break;
+          }
+
           settings.progress_ptr = nullptr;
 
           texpress::EncoderData input{};
-          texpress::Encoder::populate_EncoderData(input, hdf5_data);
+          if (compress_normalized) {
+            texpress::Encoder::populate_EncoderData(input, tex_normalized);
+          }
+          else {
+            texpress::Encoder::populate_EncoderData(input, tex_source);
+          }
 
           texpress::EncoderData output{};
-          texpress::Encoder::initialize_buffer(hdf5_encoded.data, settings, input);
-          texpress::Encoder::populate_EncoderData(output, hdf5_encoded);
+          texpress::Encoder::initialize_buffer(tex_encoded.data, settings, input);
+          texpress::Encoder::populate_EncoderData(output, tex_encoded);
 
           if (encoder->compress(settings, input, output)) {
             spdlog::info("Compressed!");
-            texpress::Encoder::populate_Texture(hdf5_encoded, output);
+            texpress::Encoder::populate_Texture(tex_encoded, output);
           }
 
-          if (!texOut) {
-            texOut = globjects::Texture::createDefault();
-          }
-          texOut->compressedImage2D(0, hdf5_encoded.gl_internal, glm::ivec2(hdf5_encoded.dimensions), 0, hdf5_encoded.bytes() / hdf5_encoded.dimensions.z, hdf5_encoded.data.data());
+          tex_out = &tex_encoded;
         }
 
-        if (ImGui::Button("Decompress BC6H") && !hdf5_encoded.data.empty()) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(128);
+        ImGui::Combo("Quality", &compress_selected, compress_options.data(), compress_options.size());
+
+        ImGui::SameLine();
+        ImGui::Checkbox("Use Normalized Data", &compress_normalized);
+
+        static bool decompress_and_denormalize = false;
+        if (ImGui::Button("Decompress BC6H") && !tex_encoded.data.empty()) {
           texpress::EncoderData input{};
-          texpress::Encoder::populate_EncoderData(input, hdf5_encoded);
+          texpress::Encoder::populate_EncoderData(input, tex_encoded);
 
           texpress::EncoderData output{};
           output.data_bytes = encoder->decoded_size(input);
-          hdf5_decoded.data.resize(output.data_bytes);
-          output.data_ptr = reinterpret_cast<uint8_t*>(hdf5_decoded.data.data());
+          tex_decoded.data.resize(output.data_bytes);
+          output.data_ptr = reinterpret_cast<uint8_t*>(tex_decoded.data.data());
 
           if (encoder->decompress(input, output)) {
             spdlog::info("Decompressed!");
           }
 
-          texpress::Encoder::populate_Texture(hdf5_decoded, output);
+          texpress::Encoder::populate_Texture(tex_decoded, output);
 
-          if (!texOut) {
-            texOut = globjects::Texture::createDefault();
+          if (peaks.empty()) {
+            decompress_and_denormalize = false;
           }
 
-          texOut->image2D(0, hdf5_decoded.gl_internal, hdf5_decoded.dimensions, 0, hdf5_decoded.gl_format, hdf5_decoded.gl_type, hdf5_decoded.data.data());
+          if (decompress_and_denormalize) {
+            float* dec_ptr = (float*)tex_decoded.data.data();
+            uint64_t id = 0;
+            for (uint64_t d = 0; d < tex_decoded.dimensions.z; d++) {
+              for (uint64_t p = 0; p < tex_decoded.dimensions.x * tex_decoded.dimensions.y; p++) {
+                for (int c = 0; c < tex_decoded.channels; c++) {
+                  dec_ptr[id] = texpress::denormalize_per_component(dec_ptr[id], tex_decoded.channels, peaks, d, c);
+
+                  id++;
+                }
+              }
+            }
+          }
+
+          tex_out = &tex_decoded;
 
           configuration_changed = false;
         }
 
+        ImGui::SameLine();
+        ImGui::Checkbox("Denormalize on decompression", &decompress_and_denormalize);
 
-        if (ImGui::Button("Save Source KTX") && !hdf5_data.data.empty()) {
-          texpress::save_ktx(hdf5_data, "source_data_test.ktx", false, true);
+        if (ImGui::Button("Save")) {
+          ImGui::SetNextWindowSize(ImGui::GetContentRegionAvail());
+          ImGui::OpenPopup("Save Popup");
         }
 
-        if (ImGui::Button("Load Source KTX")) {
-          texpress::load_ktx<float>("source_data_test.ktx", hdf5_data);
-          if (!texIn) {
-            texIn = globjects::Texture::createDefault();
-          }
-          texIn->image2D(0, hdf5_data.gl_internal, hdf5_data.dimensions, 0, hdf5_data.gl_format, hdf5_data.gl_type, hdf5_data.data.data());
-        }
+        if (ImGui::BeginPopupModal("Save Popup", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+          std::vector<char*> save_options;
 
-
-        if (ImGui::Button("Save Compressed KTX") && !hdf5_encoded.data.empty()) {
-          texpress::save_ktx(hdf5_encoded, "enc_data_test.ktx", false, true);
-        }
-
-        if (ImGui::Button("Load Compressed KTX")) {
-          texpress::load_ktx<uint8_t>("enc_data_test.ktx", hdf5_encoded);
-          if (!texOut) {
-            texOut = globjects::Texture::createDefault();
+          if (!tex_source.data.empty()) {
+            save_options.push_back("Source");
           }
 
-          texOut->compressedImage2D(0, hdf5_encoded.gl_internal, glm::ivec2(hdf5_encoded.dimensions), 0, hdf5_encoded.bytes() / hdf5_encoded.dimensions.z, hdf5_encoded.data.data());
-        }
-
-        if (ImGui::Button("Save Decoded KTX") && !hdf5_decoded.data.empty()) {
-          texpress::save_ktx(hdf5_decoded, "dec_data_test.ktx", false, true);
-        }
-
-        if (ImGui::Button("Load Decoded KTX")) {
-          texpress::load_ktx<float>("dec_data_test.ktx", hdf5_decoded);
-          if (!texOut) {
-            texOut = globjects::Texture::createDefault();
+          if (!tex_normalized.data.empty()) {
+            save_options.push_back("Normalized (with Peaks)");
           }
 
-          texOut->image2D(0, hdf5_decoded.gl_internal, hdf5_decoded.dimensions, 0, hdf5_decoded.gl_format, hdf5_decoded.gl_type, hdf5_decoded.data.data());
+          if (!tex_encoded.data.empty()) {
+            save_options.push_back("Compressed (with Peaks)");
+          }
+
+          if (!tex_decoded.data.empty()) {
+            save_options.push_back("Decoded");
+          }
+
+          static int save_selected = -1;
+          if (ImGui::Combo("Select data", &save_selected, save_options.data(), save_options.size())) {
+            if (save_path[0] == '\0') {
+              strcpy(save_path, (std::string(buf_path) + ".ktx").c_str());
+             }
+          }
+
+          ImGui::InputText("##Savepath", save_path, 128);
+
+          static bool array2d = false;
+          static bool monolithic = true;
+          ImGui::Checkbox("As 2DArray", &array2d); ImGui::SameLine(); 
+          ImGui::Checkbox("As Single File", &monolithic);
+
+          if (ImGui::Button("Save as KTX")) {
+            switch (save_selected) {
+            case 0:
+              if (!tex_source.data.empty()) {
+                texpress::save_ktx(tex_source, save_path, array2d, monolithic);
+              }
+              break;
+            case 1:
+              if (!tex_normalized.data.empty()) {
+                texpress::save_ktx(tex_normalized, save_path, array2d, monolithic);
+              }
+              if (!peaks.empty()) {
+                std::string peaks_path = std::string(save_path);
+                peaks_path = peaks_path.substr(0, peaks_path.find_last_of('.')) + ".peaks";
+                texpress::file_save(peaks_path.c_str(), (char*)peaks.data(), peaks.size() * sizeof(float));
+              }
+              break;
+            case 2:
+              if (!tex_encoded.data.empty()) {
+                texpress::save_ktx(tex_encoded, save_path, array2d, monolithic);
+              }
+              if (!peaks.empty()) {
+                std::string peaks_path = std::string(save_path);
+                peaks_path = peaks_path.substr(0, peaks_path.find_last_of('.')) + ".peaks";
+                texpress::file_save(peaks_path.c_str(), (char*)peaks.data(), peaks.size() * sizeof(float));
+              }
+              break;
+            case 3:
+              if (!tex_decoded.data.empty()) {
+                texpress::save_ktx(tex_decoded, save_path, array2d, monolithic);
+              }
+              break;
+            }
+          }
+
+
+          if (ImGui::Button("Close"))
+            ImGui::CloseCurrentPopup();
+
+          ImGui::EndPopup();
         }
 
-        if (ImGui::Button("Compare Source vs Compressed")) {
-          if (!hdf5_data.data.empty() && !hdf5_encoded.data.empty()) {
-            average_error(hdf5_data, hdf5_encoded);
+        ImGui::SameLine();
+
+        if (ImGui::Button("Load")) {
+          ImGui::SetNextWindowSize(ImGui::GetContentRegionAvail());
+          ImGui::OpenPopup("Load Popup");
+        }
+
+        if (ImGui::BeginPopupModal("Load Popup", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+          std::vector<char*> load_options{"Source KTX", "Normalized KTX", "Peaks", "Compressed KTX", "Decoded KTX"};
+
+          static int load_selected = -1;
+          if (ImGui::Combo("Select data##load", &load_selected, load_options.data(), load_options.size())) {
+            if (load_path[0] == '\0') {
+              strcpy(load_path, (std::string(buf_path) + ".ktx").c_str());
+            }
+          }
+
+          ImGui::InputText("##Loadpath", load_path, 128);
+
+          if (ImGui::Button("Load##Action")) {
+            switch (load_selected) {
+            case 0:
+              texpress::load_ktx(load_path, tex_source);
+
+              tex_in = &tex_source;
+              break;
+            case 1:
+              texpress::load_ktx(load_path, tex_normalized);
+
+              tex_in = &tex_normalized;
+              break;
+            case 2:
+              peaks.clear();
+              peaks.resize(texpress::file_size(load_path));
+              texpress::file_read(load_path, (char*)peaks.data(), peaks.size());
+              break;
+            case 3:
+              texpress::load_ktx(load_path, tex_encoded);
+
+              tex_out = &tex_encoded;
+              break;
+            case 4:
+              texpress::load_ktx(load_path, tex_decoded);
+
+              tex_out = &tex_decoded;
+              break;
+            }
+          }
+
+
+          if (ImGui::Button("Close"))
+            ImGui::CloseCurrentPopup();
+
+          ImGui::EndPopup();
+        }
+
+        if (ImGui::Button("Compare")) {
+          if (!tex_source.data.empty()) {
+            //average_error(tex_source, tex_encoded, encoder);
+            average_error(tex_source, tex_decoded, encoder);
           }
         }
 
@@ -389,21 +733,29 @@ struct update_pass : texpress::render_pass
       {
         ImGui::BeginChild("ChildBL", { ImGui::GetContentRegionAvail().x * 0.5f, ImGui::GetContentRegionAvail().y }, false, window_flags);
         if (ImGui::CollapsingHeader("Source Data")) {
-          if (texIn) {
+          if (gl_tex_in) {
+            ImGui::Checkbox("Sync Sliders", &sync_sliders);
+
             uint64_t min = 0;
-            uint64_t max = (uint64_t)std::max(hdf5_data.dimensions.z * hdf5_data.dimensions.w - 1, 0);
+            uint64_t max = (uint64_t)std::max(tex_in->dimensions.z * tex_in->dimensions.w - 1, 0);
             ImGui::SliderScalar("Depth Slice##src", ImGuiDataType_U64, &depth_src, &min, &max);
 
-            uint64_t offset = depth_src * (uint64_t)hdf5_data.dimensions.x * (uint64_t)hdf5_data.dimensions.y * (uint64_t)hdf5_data.channels;
-            texIn->image2D(0, hdf5_data.gl_internal, hdf5_data.dimensions, 0, hdf5_data.gl_format, hdf5_data.gl_type, hdf5_data.data.data() + offset);
+            if (tex_in->compressed()) {
+              uint64_t offset = depth_src * (uint64_t)tex_in->bytes() / ((uint64_t)tex_in->dimensions.z * (uint64_t)tex_in->dimensions.w * (uint64_t)tex_in->bytes_type());
+              gl_tex_out->compressedImage2D(0, tex_in->gl_internal, glm::ivec2(tex_in->dimensions), 0, tex_in->bytes() / (tex_in->dimensions.z * tex_in->dimensions.w), tex_in->data.data() + offset);
+            }
+            else {
+              uint64_t offset = depth_src * (uint64_t)tex_in->dimensions.x * (uint64_t)tex_in->dimensions.y * (uint64_t)tex_in->channels * (uint64_t)tex_in->bytes_type();
+              gl_tex_in->image2D(0, tex_in->gl_internal, tex_in->dimensions, 0, tex_in->gl_format, tex_in->gl_type, tex_in->data.data() + offset);
+            }
 
-            ImTextureID texID = ImTextureID(texIn->id());
-            ImGui::Image(texID, ImVec2(256, 256), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
+            ImTextureID texID = ImTextureID(gl_tex_in->id());
+            ImGui::Image(texID, ImVec2(400, 400), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
             ImGui::SameLine();
             ImGui::BeginGroup();
-            ImGui::Text("Size: %i MB", (hdf5_data.bytes() / (1000 * 1000)));
-            ImGui::Text("Dimensions: %ix%ix%ix%i", hdf5_data.dimensions.x, hdf5_data.dimensions.y, hdf5_data.dimensions.z, hdf5_data.dimensions.w);
-            ImGui::Text("Channels: %i", hdf5_data.channels);
+            ImGui::Text("Size: %i MB", (tex_in->bytes() / (1000 * 1000)));
+            ImGui::Text("Dimensions: %ix%ix%ix%i", tex_in->dimensions.x, tex_in->dimensions.y, tex_in->dimensions.z, tex_in->dimensions.w);
+            ImGui::Text("Channels: %i", tex_in->channels);
             ImGui::EndGroup();
           }
         }
@@ -415,22 +767,34 @@ struct update_pass : texpress::render_pass
       {
         ImGui::BeginChild("ChildBR", { ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().y }, false, window_flags);
         if (ImGui::CollapsingHeader("Encoded Data")) {
-          if (texOut) {
+          if (gl_tex_out) {
+            ImGui::Checkbox("Sync Sliders", &sync_sliders);
+
             uint64_t min = 0;
-            uint64_t max = (uint64_t)std::max(hdf5_encoded.dimensions.z * hdf5_encoded.dimensions.w - 1, 0);
-            ImGui::SliderScalar("Depth Slice##enc", ImGuiDataType_U64, &depth_enc, &min, &max);
+            uint64_t max = (uint64_t)std::max(tex_out->dimensions.z * tex_out->dimensions.w - 1, 0);
+            ImGui::SliderScalar("Depth Slice##enc", ImGuiDataType_U64, (sync_sliders) ? &depth_src : &depth_enc, &min, &max);
 
-            uint64_t offset = depth_enc * (uint64_t)hdf5_encoded.bytes() / ((uint64_t)hdf5_encoded.dimensions.z * (uint64_t)hdf5_encoded.dimensions.w);
-            texOut->compressedImage2D(0, hdf5_encoded.gl_internal, glm::ivec2(hdf5_encoded.dimensions), 0, hdf5_encoded.bytes() / (hdf5_encoded.dimensions.z * hdf5_encoded.dimensions.w), hdf5_encoded.data.data() + offset);
+            if (sync_sliders) {
+              depth_enc = depth_src;
+            }
 
-            ImTextureID texID = ImTextureID(texOut->id());
-            ImGui::Image(texID, ImVec2(256, 256), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
+            if (tex_out->compressed()) {
+              uint64_t offset = depth_enc * (uint64_t)tex_out->bytes() / ((uint64_t)tex_out->dimensions.z * (uint64_t)tex_out->dimensions.w * (uint64_t)tex_out->bytes_type());
+              gl_tex_out->compressedImage2D(0, tex_out->gl_internal, glm::ivec2(tex_out->dimensions), 0, tex_out->bytes() / (tex_out->dimensions.z * tex_out->dimensions.w), tex_out->data.data() + offset);
+            }
+            else {
+              uint64_t offset = depth_enc * (uint64_t)tex_out->dimensions.x * (uint64_t)tex_out->dimensions.y * (uint64_t)tex_out->channels * (uint64_t)tex_out->bytes_type();
+              gl_tex_out->image2D(0, tex_out->gl_internal, tex_out->dimensions, 0, tex_out->gl_format, tex_out->gl_type, tex_out->data.data() + offset);
+            }
+
+            ImTextureID texID = ImTextureID(gl_tex_out->id());
+            ImGui::Image(texID, ImVec2(400, 400), ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0, 1.0, 1.0, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0));
             ImGui::SameLine();
             ImGui::BeginGroup();
-            ImGui::Text("Size: %i MB", (hdf5_encoded.bytes() / (1000 * 1000)));
-            ImGui::Text("Dimensions: %ix%ix%ix%i", hdf5_encoded.dimensions.x, hdf5_encoded.dimensions.y, hdf5_encoded.dimensions.z, hdf5_encoded.dimensions.w);
-            ImGui::Text("Channels: %i", hdf5_encoded.channels);
-            ImGui::Text("Compression Ratio: %f.4%%", (float)hdf5_encoded.bytes() / std::max(hdf5_data.bytes(), (uint64_t)1));
+            ImGui::Text("Size: %i MB", (tex_out->bytes() / (1000 * 1000)));
+            ImGui::Text("Dimensions: %ix%ix%ix%i", tex_out->dimensions.x, tex_out->dimensions.y, tex_out->dimensions.z, tex_out->dimensions.w);
+            ImGui::Text("Channels: %i", tex_out->channels);
+            ImGui::Text("Compression Ratio: %f.4%%", (uint16_t)tex_out->bytes() / std::max(tex_source.bytes(), (uint64_t)1));
             ImGui::EndGroup();
           }
         }
@@ -451,11 +815,15 @@ struct update_pass : texpress::render_pass
   // Data buffers
   HighFive::File* hdf5_file;
   texpress::HDF5Tree hdf5_structure;
-  texpress::Texture<float> hdf5_data;
-  texpress::Texture<uint8_t> hdf5_encoded;
-  texpress::Texture<float> hdf5_decoded;
-  std::unique_ptr<globjects::Texture> texIn;
-  std::unique_ptr<globjects::Texture> texOut;
+  texpress::Texture tex_source;
+  texpress::Texture tex_normalized;
+  texpress::Texture tex_encoded;
+  texpress::Texture tex_decoded;
+  texpress::Texture* tex_in;
+  texpress::Texture* tex_out;
+
+  std::unique_ptr<globjects::Texture> gl_tex_in;
+  std::unique_ptr<globjects::Texture> gl_tex_out;
 
   // UpdateLogic
   double MS_PER_UPDATE;
@@ -466,6 +834,8 @@ struct update_pass : texpress::render_pass
 
   // Gui
   char buf_path[128];
+  char save_path[128];
+  char load_path[128];
   char buf_x[128];
   char buf_y[128];
   char buf_z[128];
@@ -478,8 +848,11 @@ struct update_pass : texpress::render_pass
   uint64_t depth_src;
   uint64_t depth_enc;
   bool configuration_changed;
+  bool sync_sliders;
 
   uint64_t image_level;
+
+  std::vector<float> peaks;
 
   // Threads
   std::thread t_encoder;

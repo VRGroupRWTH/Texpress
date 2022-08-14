@@ -131,6 +131,8 @@ namespace texpress {
       return false;
     }
 
+    int bits = (input.data_bytes / (input.dim_x * input.dim_y * input.dim_z * input.dim_t * input.channels)) * 8;
+
     if (!output.data_ptr) {
       spdlog::error("Output Buffer not initialized");
       busy.store(false);
@@ -157,13 +159,14 @@ namespace texpress {
     nvtt::CompressionOptions compressionOptions;
     compressionOptions.setFormat(settings.encoding);
     compressionOptions.setQuality(settings.quality);
+    //compressionOptions.setPixelType(nvtt::PixelType_Float);
     if (settings.use_weights) {
       compressionOptions.setColorWeights(settings.red_weight, settings.green_weight, settings.blue_weight, settings.alpha_weight);
     }
 
     // Setup empty floating-point RGBA image to deduce needed buffersize.
     nvtt::Surface surface;
-    surface.setImage(nvtt::InputFormat_RGBA_32F, input.dim_x, input.dim_y, 1, input.data_ptr);
+    surface.setImage(bits == 32 ? nvtt::InputFormat_RGBA_32F : nvtt::InputFormat_RGBA_16F, input.dim_x, input.dim_y, 1, input.data_ptr);
     uint64_t buffer_size = context.estimateSize(surface, 1, compressionOptions) * input.dim_z * input.dim_t;
 
     if (buffer_size > output.data_bytes) {
@@ -239,7 +242,7 @@ namespace texpress {
           data_ptr = input.data_ptr + offset;
         }
 
-        surface.setImage(nvtt::InputFormat_RGBA_32F, input.dim_x, input.dim_y, 1, data_ptr);
+        surface.setImage(bits == 32 ? nvtt::InputFormat_RGBA_32F : nvtt::InputFormat_RGBA_16F, input.dim_x, input.dim_y, 1, data_ptr);
         if (!context.compress(surface, 0, 0, compressionOptions, outputOptions)) {
           spdlog::error("Compression failed");
           busy.store(false);
@@ -280,6 +283,27 @@ namespace texpress {
     if (input.gl_internal == (uint32_t)gl::GLenum::GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT) {
       busy.store(false);
       return decompress(nvtt::Format::Format_BC6U, input, output);
+    }
+
+    spdlog::error("Could not deduce nvtt encoding of gl_internal with value {0}.", input.gl_internal);
+    busy.store(false);
+    return false;
+  }
+
+  bool Encoder::decompress(const EncoderData& input, EncoderData& output, uint64_t slice) {
+    // Multithread safety
+    if (busy.exchange(true)) {
+      return false;
+    }
+
+    if (input.gl_internal == (uint32_t)gl::GLenum::GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT) {
+      busy.store(false);
+      return decompress(nvtt::Format::Format_BC6S, input, output, slice);
+    }
+
+    if (input.gl_internal == (uint32_t)gl::GLenum::GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT) {
+      busy.store(false);
+      return decompress(nvtt::Format::Format_BC6U, input, output, slice);
     }
 
     spdlog::error("Could not deduce nvtt encoding of gl_internal with value {0}.", input.gl_internal);
@@ -346,73 +370,100 @@ namespace texpress {
     return true;
   }
 
-  bool Encoder::populate_EncoderData(EncoderData& enc_data, Texture<float>& tex_input) {
-    enc_data.gl_format = (uint32_t) tex_input.gl_format;
-    enc_data.gl_internal= (uint32_t)tex_input.gl_internal;
+  bool Encoder::decompress(const nvtt::Format encoding, const EncoderData& input, EncoderData& output, uint64_t slice) {
+    // Multithread safety
+    if (busy.exchange(true)) {
+      return false;
+    }
 
-    return populate_EncoderData_base(enc_data,
-      tex_input.dimensions.x, tex_input.dimensions.y, tex_input.dimensions.z, tex_input.dimensions.w,
-      tex_input.channels, tex_input.bytes(), reinterpret_cast<uint8_t*>(tex_input.data.data())
-    );
+    if (!output.data_ptr) {
+      spdlog::error("Output Buffer not initialized");
+      busy.store(false);
+      return false;
+    }
+
+    uint64_t buffer_size = input.dim_x * input.dim_y * input.channels * sizeof(float);
+    if (buffer_size > output.data_bytes) {
+      spdlog::error("Output Buffer {0} bytes too small", buffer_size - output.data_bytes);
+      busy.store(false);
+      return false;
+    }
+
+    // Setup empty floating-point RGBA image to deduce needed buffersize.
+    uint64_t offset = slice * input.data_bytes / ((uint64_t)input.dim_z * (uint64_t)input.dim_t);
+    nvtt::Surface surface;
+    surface.setImage3D(encoding, input.dim_x, input.dim_y, 1, input.data_ptr + offset);
+
+    const float* r_ptr = (input.channels >= 1) ? surface.channel(0) : nullptr;
+    const float* g_ptr = (input.channels >= 2) ? surface.channel(1) : nullptr;
+    const float* b_ptr = (input.channels >= 3) ? surface.channel(2) : nullptr;
+    const float* a_ptr = (input.channels >= 4) ? surface.channel(3) : nullptr;
+
+    float* out_ptr = reinterpret_cast<float*>(output.data_ptr);
+    for (auto p = 0; p < input.dim_x * input.dim_y; p++) {
+      if (r_ptr) {
+        out_ptr[p * input.channels + 0] = r_ptr[p];
+      }
+      if (g_ptr) {
+        out_ptr[p * input.channels + 1] = g_ptr[p];
+      }
+      if (b_ptr) {
+        out_ptr[p * input.channels + 2] = b_ptr[p];
+      }
+      if (a_ptr) {
+        out_ptr[p * input.channels + 3] = a_ptr[p];
+      }
+    }
+
+    // Prepare output
+    output.dim_x = input.dim_x;
+    output.dim_y = input.dim_y;
+    output.dim_z = 1;
+    output.dim_t = 1;
+    output.channels = input.channels;
+    //output.gl_format = (uint32_t)gl::GLenum::GL_RGBA;
+    //output.gl_internal = (uint32_t)gl::GLenum::GL_RGBA32F;
+    output.gl_format = (uint32_t)gl_internal(input.channels, 32, true);
+    output.gl_format = (uint32_t)gl_format(input.channels);
+
+    busy.store(false);
+    return true;
   }
 
-  bool Encoder::populate_EncoderData(EncoderData& enc_data, Texture<uint8_t>& tex_input) {
-    enc_data.gl_format = (uint32_t)tex_input.gl_format;
-    enc_data.gl_internal = (uint32_t)tex_input.gl_internal;
+  bool Encoder::populate_EncoderData(EncoderData& enc_data, Texture& tex_input) {
+    enc_data.gl_format = (uint32_t) tex_input.gl_format;
+    enc_data.gl_internal= (uint32_t)tex_input.gl_internal;
 
     return populate_EncoderData_base(enc_data,
       tex_input.dimensions.x, tex_input.dimensions.y, tex_input.dimensions.z, tex_input.dimensions.w,
       tex_input.channels, tex_input.bytes(), tex_input.data.data()
     );
   }
-  bool Encoder::populate_EncoderData(EncoderData& enc_data, image_ldr& img_input) {
+
+  bool Encoder::populate_EncoderData(EncoderData& enc_data, image& img_input) {
     enc_data.gl_format = (uint32_t) gl_format(img_input.channels);
-    enc_data.gl_internal = (uint32_t)gl_internal(img_input.channels, 8, false);
+    enc_data.gl_internal = (uint32_t)gl_internal(img_input.channels, img_input.is_hdr() ? 32 : 8, img_input.is_hdr());
 
     return populate_EncoderData_base(enc_data,
       img_input.size.x, img_input.size.y, 1, 1,
       img_input.channels, img_input.bytes(), img_input.data.data()
     );
   }
-  bool Encoder::populate_EncoderData(EncoderData& enc_data, image_hdr& img_input) {
-    enc_data.gl_format = (uint32_t)gl_format(img_input.channels);
-    enc_data.gl_internal = (uint32_t)gl_internal(img_input.channels, 32, true);
 
-    return populate_EncoderData_base(enc_data,
-      img_input.size.x, img_input.size.y, 1, 1,
-      img_input.channels, img_input.bytes(), reinterpret_cast<uint8_t*>(img_input.data.data())
-    );
-  }
-
-  bool Encoder::populate_Texture(Texture<float>& tex, EncoderData& enc_data) {
+  bool Encoder::populate_Texture(Texture& tex, EncoderData& enc_data) {
     tex.dimensions = { enc_data.dim_x, enc_data.dim_y, enc_data.dim_z, enc_data.dim_t };
     tex.channels = enc_data.channels;
 
     tex.gl_internal = gl::GLenum(enc_data.gl_internal);
     tex.gl_format = gl::GLenum(enc_data.gl_format);
-    tex.gl_type = gl::GL_FLOAT;
+    tex.gl_type = gl_type(gl::GLenum(enc_data.gl_format));
 
     if (tex.gl_internal == gl::GLenum::GL_ZERO) {
       tex.gl_internal = gl_internal(enc_data.channels, 32, true);
-      //uint8_t bits = (enc_data.data_bytes / (enc_data.dim_x * enc_data.dim_y * enc_data.dim_z * enc_data.dim_t * enc_data.channels)) * 8;
-      //tex.gl_internal = gl_internal_uncomnpressed(enc_data.channels, bits, bits > 8);
     }
 
-    return true;
-  }
-
-  bool Encoder::populate_Texture(Texture<uint8_t>& tex, EncoderData& enc_data) {
-    tex.dimensions = { enc_data.dim_x, enc_data.dim_y, enc_data.dim_z, enc_data.dim_t };
-    tex.channels = enc_data.channels;
-
-    tex.gl_internal = gl::GLenum(enc_data.gl_internal);
-    tex.gl_format = gl::GLenum(enc_data.gl_format);
-    tex.gl_type = gl::GL_UNSIGNED_BYTE;
-
-    if (tex.gl_internal == gl::GLenum::GL_ZERO) {
-      tex.gl_internal = gl_internal(enc_data.channels, 8, false);
-      //uint8_t bits = (enc_data.data_bytes / (enc_data.dim_x * enc_data.dim_y * enc_data.dim_z * enc_data.dim_t * enc_data.channels)) * 8;
-      //tex.gl_internal = gl_internal_uncomnpressed(enc_data.channels, bits, bits > 8);
+    if (tex.gl_type == gl::GLenum::GL_ZERO) {
+      tex.gl_type = gl_type(tex.gl_internal);
     }
 
     return true;

@@ -17,6 +17,8 @@ struct rendering_pass : texpress::render_pass
     , image_in{ }
     , imagef_in{ }
     , image_out{ }
+    , image_fp16{ }
+    , image_fp32{ }
     , vertex_buffer(globjects::Buffer::create())
     , color_buffer(globjects::Buffer::create())
     , coordinates_buffer(globjects::Buffer::create())
@@ -81,10 +83,48 @@ struct rendering_pass : texpress::render_pass
       indices[4] = 3;
       indices[5] = 0;
 
+      texture_in->setParameter(gl::GLenum::GL_TEXTURE_MIN_FILTER, gl::GL_NEAREST);
+      texture_in->setParameter(gl::GLenum::GL_TEXTURE_WRAP_S, gl::GL_CLAMP_TO_EDGE);
+      texture_in->setParameter(gl::GLenum::GL_TEXTURE_WRAP_T, gl::GL_CLAMP_TO_EDGE);
+
+
+      image_fp16.channels = 4;
+      image_fp16.dimensions = { 16, 16, 1, 1 };
+      image_fp16.gl_format = gl::GL_RGBA;
+      image_fp16.gl_internal = gl::GL_RGBA16F;
+      image_fp16.gl_type = gl::GL_HALF_FLOAT;
+      image_fp16.data.resize(image_fp16.dimensions.x * image_fp16.dimensions.y * image_fp16.dimensions.z * image_fp16.dimensions.w * image_fp16.channels);
+      for (uint32_t i = 0; i < image_fp16.dimensions.x * image_fp16.dimensions.y * image_fp16.dimensions.z * image_fp16.dimensions.w; i++) {
+        image_fp16.data[i * image_fp16.channels + 0] = fp16_ieee_from_fp32_value(0.0f); // R
+        image_fp16.data[i * image_fp16.channels + 1] = fp16_ieee_from_fp32_value(1.0f); // G
+        image_fp16.data[i * image_fp16.channels + 2] = fp16_ieee_from_fp32_value(0.0f); // B
+        image_fp16.data[i * image_fp16.channels + 3] = fp16_ieee_from_fp32_value(1.0f); // A
+      }
+      texpress::save_ktx(image_fp16, "green_fp16.ktx", false, true);
+      
+
+      //texpress::load_ktx<uint16_t>("green_fp16.ktx", image_fp16);
+      /*
+      image_fp32.channels = 4;
+      image_fp32.dimensions = { 16, 16, 1, 1 };
+      image_fp32.gl_format = gl::GL_RGBA;
+      image_fp32.gl_internal = gl::GL_RGBA32F;
+      image_fp32.gl_type = gl::GL_FLOAT;
+      image_fp32.data.resize(image_fp32.dimensions.x * image_fp32.dimensions.y * image_fp32.dimensions.z * image_fp32.dimensions.w * image_fp32.channels);
+      for (uint32_t i = 0; i < image_fp32.dimensions.x * image_fp32.dimensions.y * image_fp32.dimensions.z * image_fp32.dimensions.w; i++) {
+        image_fp32.data[i * image_fp32.channels + 0] = (0.0f); // R
+        image_fp32.data[i * image_fp32.channels + 1] = (1.0f); // G
+        image_fp32.data[i * image_fp32.channels + 2] = (0.0f); // B
+        image_fp32.data[i * image_fp32.channels + 3] = (1.0f); // A
+      }
+      texpress::save_ktx(image_fp32, "green_fp32.ktx", false, true);
+      */
+
+      /*
       if (bc6h) {
         imagef_in = texpress::load_image_hdr("../files/vr.jpg", 4);
 
-        image_out = texpress::load_ktx<uint8_t>("3d_ktx_bc6h_neg.ktx2");
+        texpress::load_ktx<uint8_t>("3d_ktx_bc6h_neg.ktx2", image_out);
         image_out.gl_internal = gl::GLenum::GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT;
 
         //image_out = encoder->compress_bc6h(texpress::BC6H_options(), imagef_in);
@@ -94,6 +134,7 @@ struct rendering_pass : texpress::render_pass
 
         //image_out = encoder->compress_bc7(image_in);
       }
+      */
 
     };
     on_update = [&]()
@@ -121,17 +162,11 @@ struct rendering_pass : texpress::render_pass
       if (show_tex_1)
       {
         texture_in->bindActive(0);
-        if (bc6h) {
-          texture_in->image2D(0, gl::GL_RGBA32F, imagef_in.size, 0, gl::GL_RGBA, gl::GL_FLOAT, imagef_in.data.data());
-        }
-        else {
-          texture_in->image2D(0, gl::GL_RGBA8, image_in.size, 0, gl::GL_RGBA, gl::GL_UNSIGNED_BYTE, image_in.data.data());
-        }
+        texture_in->image2D(0, image_fp16.gl_internal, image_fp16.dimensions, 0, image_fp16.gl_format, image_fp16.gl_type, image_fp16.data.data());
       }
       else
       {
-        texture_out->bindActive(0);
-        texture_out->compressedImage2D(0, image_out.gl_internal, glm::ivec2(image_out.dimensions), 0, image_out.data_size, image_out.data.data());
+        // noop
       }
 
       index_buffer->bind(gl::GLenum::GL_ELEMENT_ARRAY_BUFFER);
@@ -181,6 +216,8 @@ void main()
   texpress::image_ldr image_in;
   texpress::image_hdr imagef_in;
   texpress::Texture<uint8_t> image_out;
+  texpress::Texture<uint16_t> image_fp16;
+  texpress::Texture<float> image_fp32;
 
   texpress::Encoder* encoder;
 

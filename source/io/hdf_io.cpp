@@ -206,6 +206,101 @@ namespace texpress
   }
 
   std::vector<uint64_t> hdf5::dataset_dimensions(const char* dataset) {
-    return file->getDataSet(dataset).getDimensions();
+    //return file->getDataSet(dataset).getDimensions();
+    return get_grid_fixsize(dataset);
+  }
+
+  std::vector<std::size_t> hdf5::get_grid(const char* ds, bool desc_order)
+  {
+    HighFive::DataSet        dataset = file->getDataSet(ds);
+    std::vector<std::size_t> grid = dataset.getDimensions();
+    std::uint8_t             grid_dim = grid.size();
+
+    std::size_t  grid_t = (grid_dim == 4) ? grid[grid_dim - 4] : 0;
+    std::size_t  grid_z = (grid_dim >= 3) ? grid[grid_dim - 3] : 0;
+    std::size_t  grid_y = (grid_dim >= 2) ? grid[grid_dim - 2] : 0;
+    std::size_t  grid_x = (grid_dim >= 1) ? grid[grid_dim - 1] : 0;
+
+    switch (grid_dim)
+    {
+    case 1:
+      return { grid_x };
+
+    case 2:
+      if (desc_order)
+        return { grid_y, grid_x };
+      else
+        return { grid_x, grid_y };
+
+    case 3:
+      if (desc_order)
+        return { grid_z, grid_y, grid_x };
+      else
+        return { grid_x, grid_y, grid_z };
+
+    case 4:
+      if (desc_order)
+        return { grid_t, grid_z, grid_y, grid_x };
+      else
+        return { grid_x, grid_y, grid_z, grid_t };
+    }
+
+    return { };
+  }
+
+  std::vector<std::size_t> hdf5::get_grid_fixsize(const char* ds, bool desc_order, std::size_t fillvalue)
+  {
+    HighFive::DataSet        dataset = file->getDataSet(ds);
+    std::vector<std::size_t> grid = dataset.getDimensions();
+    std::uint8_t             grid_dim = grid.size();
+
+    std::size_t  grid_t = (grid_dim == 4) ? grid[grid_dim - 4] : 0;
+    std::size_t  grid_z = (grid_dim >= 3) ? grid[grid_dim - 3] : 0;
+    std::size_t  grid_y = (grid_dim >= 2) ? grid[grid_dim - 2] : 0;
+    std::size_t  grid_x = (grid_dim >= 1) ? grid[grid_dim - 1] : 0;
+
+    std::size_t& fv = fillvalue;
+    switch (grid_dim)
+    {
+    case 1:
+      if (desc_order)
+        return { fv, fv, fv, grid_x };
+
+      else
+        return { grid_x, fv, fv, fv };
+
+    case 2:
+      if (desc_order)
+        return { fv, fv, grid_y, grid_x };
+      else
+        return { grid_x, grid_y, fv, fv };
+
+    case 3:
+      if (desc_order)
+        return { fv, grid_z, grid_y, grid_x };
+      else
+        return { grid_x, grid_y, grid_z, fv };
+
+    case 4:
+      if (desc_order)
+        return { grid_t, grid_z, grid_y, grid_x };
+      else
+        return { grid_x, grid_y, grid_z, grid_t };
+    }
+
+    return { };
+  }
+
+  std::size_t hdf5::get_grid_dim(const char* ds)
+  {
+    HighFive::DataSet        dataset = file->getDataSet(ds);
+    std::vector<std::size_t> grid = dataset.getDimensions();
+
+    return grid.size();
+  }
+
+  std::size_t hdf5::get_vec_len(const char* ds)
+  {
+    return 3;
   }
 }

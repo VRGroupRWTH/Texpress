@@ -79,8 +79,8 @@ list          (APPEND PROJECT_LIBRARIES imgui::imgui)
 find_package  (spdlog REQUIRED)
 list          (APPEND PROJECT_LIBRARIES spdlog::spdlog)
 
-#find_path     (FP16_INCLUDE_DIRS "fp16.h")
-#import_library(FP16_INCLUDE_DIRS)
+find_path     (FP16_INCLUDE_DIRS "fp16.h")
+import_library(FP16_INCLUDE_DIRS)
 
 #set           (Compressonator_SHARED TRUE)
 #find_package  (Compressonator REQUIRED)
