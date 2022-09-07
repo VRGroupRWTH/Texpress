@@ -1,18 +1,20 @@
 #include <catch2/catch_all.hpp>
 #include <texpress/api.hpp>
 #include <texpress/utility/normalize.hpp>
-
+#include <boost/accumulators/accumulators.hpp>
+#include <boost/accumulators/statistics.hpp>
 #include <iostream>
 #include <filesystem>
 #include <spdlog/spdlog.h>
 #include <thread>
 #include <future>
 #include <fp16.h>
-
 #define IMGUI_COLOR_HDFGROUP ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(148/255.f, 180/255.f, 159/255.f, 255/255.f))
 #define IMGUI_COLOR_HDFDATASET ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(206/255.f, 229/255.f, 208/255.f, 255/255.f))
 #define IMGUI_COLOR_HDFOTHER ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(252/255.f, 248/255.f, 232/255.f, 255/255.f))
 #define IMGUI_UNCOLOR ImGui::PopStyleColor()
+
+using namespace boost::accumulators;
 
 double average_error(const texpress::Texture& tex_a, texpress::Texture& tex_b, texpress::Encoder* enc) {
   glm::dvec4 max_err(0.0);
@@ -83,6 +85,77 @@ double average_error(const texpress::Texture& tex_a, texpress::Texture& tex_b, t
   }
   
   return glm::length(error)/4.0;
+}
+
+template <typename T, int length>
+void angular_error(const texpress::Texture& source, const texpress::Texture& decoded, texpress::Texture& error_out) {
+  if (source.dimensions != decoded.dimensions) { return; }
+
+  // Populate error
+  error_out.data.clear();
+  error_out.data.resize(source.dimensions.x * source.dimensions.y * source.dimensions.z * source.dimensions.w * sizeof(float));
+  error_out.dimensions = source.dimensions;
+  error_out.channels = 1;
+  error_out.gl_format = gl::GLenum::GL_RED;
+  error_out.gl_internal = gl::GLenum::GL_R32F;
+  error_out.gl_type = gl::GLenum::GL_FLOAT;
+  
+  const glm::vec<length, T>* src_ptr = (const glm::vec<length, T>*) source.data.data();
+  const glm::vec<3, T>* dec_ptr = (const glm::vec<3, T>*) decoded.data.data();
+  float* err_ptr = (float*) error_out.data.data();
+
+  //accumulator_set<double, features<tag::mean, tag::median> > acc;
+
+  for (auto d = 0; d < source.dimensions.z * source.dimensions.w; d++) {
+    for (auto y = 0; y < source.dimensions.y; y++) {
+      for (auto x = 0; x < source.dimensions.x; x++) {
+        uint64_t offset = d * source.dimensions.y * source.dimensions.x + y * source.dimensions.x + x;
+
+        const auto& v_src = glm::vec3(src_ptr[offset]);
+        const auto& v_dec  = glm::vec3(dec_ptr[offset]);
+        err_ptr[offset] = glm::acos(glm::dot(glm::normalize(v_src), glm::normalize(v_dec)));
+        //acc(err_ptr[offset]);
+      }
+    }
+  }
+
+  //spdlog::info("Average angular error: {0}", mean(acc));
+}
+
+template <typename T, int length>
+void distance_error(const texpress::Texture& source, const texpress::Texture& decoded, texpress::Texture& error_out) {
+  if (source.dimensions != decoded.dimensions) { return; }
+
+  // Populate error
+  error_out.data.clear();
+  error_out.data.resize(source.dimensions.x * source.dimensions.y * source.dimensions.z * source.dimensions.w * sizeof(float));
+  error_out.dimensions = source.dimensions;
+  error_out.channels = 1;
+  error_out.gl_format = gl::GLenum::GL_RED;
+  error_out.gl_internal = gl::GLenum::GL_R32F;
+  error_out.gl_type = gl::GLenum::GL_FLOAT;
+
+  const glm::vec<length, T>* src_ptr = (const glm::vec<length, T>*) source.data.data();
+  const glm::vec<3, T>* dec_ptr = (const glm::vec<3, T>*) decoded.data.data();
+  float* err_ptr = (float*)error_out.data.data();
+
+  double avg = 0.0;
+
+  for (auto d = 0; d < source.dimensions.z * source.dimensions.w; d++) {
+    for (auto y = 0; y < source.dimensions.y; y++) {
+      for (auto x = 0; x < source.dimensions.x; x++) {
+        uint64_t offset = d * source.dimensions.y * source.dimensions.x + y * source.dimensions.x + x;
+
+        const auto& v_src = glm::vec3(src_ptr[offset]);
+        const auto& v_dec = glm::vec3(dec_ptr[offset]);
+        err_ptr[offset] = glm::length(v_dec - v_src);
+        avg += err_ptr[offset];
+      }
+    }
+  }
+
+  avg /= source.dimensions.w * source.dimensions.z * source.dimensions.y * source.dimensions.x;
+  spdlog::info("Average distance error: {0}", avg);
 }
 
 /*
@@ -213,6 +286,7 @@ struct update_pass : texpress::render_pass
     , tex_normalized()
     , tex_encoded()
     , tex_decoded()
+    , tex_error()
     , tex_in(&tex_source)
     , tex_out(&tex_source)
     , depth_src(0)
@@ -259,7 +333,6 @@ struct update_pass : texpress::render_pass
       // Left menu side
       {
         ImGuiWindowFlags window_flags = ImGuiWindowFlags_HorizontalScrollbar;
-        window_flags |= ImGuiWindowFlags_NoScrollWithMouse;
         //ImGui::BeginChild("ChildL", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 260), false, window_flags);
         ImGui::BeginChild("ChildL", { ImGui::GetContentRegionAvail().x * 0.5f, ImGui::GetContentRegionAvail().y * 0.5f }, false, window_flags);
         if (ImGui::Button("Select HDF5")) {
@@ -369,7 +442,7 @@ struct update_pass : texpress::render_pass
           float* src_ptr = (float*)tex_source.data.data();
           float* norm_ptr = (float*)tex_normalized.data.data();
           uint64_t id = 0;
-          for (uint64_t d = 0; d < tex_normalized.dimensions.z; d++) {
+          for (uint64_t d = 0; d < tex_normalized.dimensions.z * tex_normalized.dimensions.w; d++) {
             for (uint64_t p = 0; p < tex_normalized.dimensions.x * tex_normalized.dimensions.y; p++) {
               for (int c = 0; c < tex_normalized.channels; c++) {
                 norm_ptr[id] = texpress::normalize_val_per_component(src_ptr[id], tex_source.channels, peaks, d, c);
@@ -392,7 +465,7 @@ struct update_pass : texpress::render_pass
           float* norm_ptr = (float*)tex_normalized.data.data();
           float* dec_ptr = (float*)tex_decoded.data.data();
           uint64_t id = 0;
-          for (uint64_t d = 0; d < tex_decoded.dimensions.z; d++) {
+          for (uint64_t d = 0; d < tex_decoded.dimensions.z * tex_decoded.dimensions.w; d++) {
             for (uint64_t p = 0; p < tex_decoded.dimensions.x * tex_decoded.dimensions.y; p++) {
               for (int c = 0; c < tex_decoded.channels; c++) {
                 dec_ptr[id] = texpress::denormalize_per_component(norm_ptr[id], tex_normalized.channels, peaks, d, c);
@@ -418,7 +491,8 @@ struct update_pass : texpress::render_pass
           }
 
           if (compress_normalized) {
-            settings.encoding = nvtt::Format::Format_BC6U;
+            settings.encoding = nvtt::Format::Format_BC6S;
+            //settings.encoding = nvtt::Format::Format_BC6U;
           }
           else {
             settings.encoding = nvtt::Format::Format_BC6S;
@@ -491,7 +565,7 @@ struct update_pass : texpress::render_pass
           if (decompress_and_denormalize) {
             float* dec_ptr = (float*)tex_decoded.data.data();
             uint64_t id = 0;
-            for (uint64_t d = 0; d < tex_decoded.dimensions.z; d++) {
+            for (uint64_t d = 0; d < tex_decoded.dimensions.z * tex_decoded.dimensions.w; d++) {
               for (uint64_t p = 0; p < tex_decoded.dimensions.x * tex_decoded.dimensions.y; p++) {
                 for (int c = 0; c < tex_decoded.channels; c++) {
                   dec_ptr[id] = texpress::denormalize_per_component(dec_ptr[id], tex_decoded.channels, peaks, d, c);
@@ -516,23 +590,7 @@ struct update_pass : texpress::render_pass
         }
 
         if (ImGui::BeginPopupModal("Save Popup", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
-          std::vector<char*> save_options;
-
-          if (!tex_source.data.empty()) {
-            save_options.push_back("Source");
-          }
-
-          if (!tex_normalized.data.empty()) {
-            save_options.push_back("Normalized (with Peaks)");
-          }
-
-          if (!tex_encoded.data.empty()) {
-            save_options.push_back("Compressed (with Peaks)");
-          }
-
-          if (!tex_decoded.data.empty()) {
-            save_options.push_back("Decoded");
-          }
+          static const std::vector<char*> save_options{ "Source KTX", "Normalized KTX (with Peaks)", "Compressed KTX (with Peaks)", "Decoded KTX", "Peaks", "Error" };
 
           static int save_selected = -1;
           if (ImGui::Combo("Select data", &save_selected, save_options.data(), save_options.size())) {
@@ -540,7 +598,7 @@ struct update_pass : texpress::render_pass
               strcpy(save_path, (std::string(buf_path) + ".ktx").c_str());
              }
           }
-
+           
           ImGui::InputText("##Savepath", save_path, 128);
 
           static bool array2d = false;
@@ -580,6 +638,18 @@ struct update_pass : texpress::render_pass
                 texpress::save_ktx(tex_decoded, save_path, array2d, monolithic);
               }
               break;
+            case 4:
+              if (!peaks.empty()) {
+                std::string peaks_path = std::string(save_path);
+                peaks_path = peaks_path.substr(0, peaks_path.find_last_of('.')) + ".peaks";
+                texpress::file_save(peaks_path.c_str(), (char*)peaks.data(), peaks.size() * sizeof(float));
+              }
+              break;
+            case 5:
+              if (!tex_error.data.empty()) {
+                texpress::save_ktx(tex_error, save_path, array2d, monolithic);
+              }
+              break;
             }
           }
 
@@ -598,7 +668,7 @@ struct update_pass : texpress::render_pass
         }
 
         if (ImGui::BeginPopupModal("Load Popup", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
-          std::vector<char*> load_options{"Source KTX", "Normalized KTX", "Peaks", "Compressed KTX", "Decoded KTX"};
+          static const std::vector<char*> load_options{"Source KTX", "Normalized KTX", "Peaks", "Compressed KTX", "Decoded KTX", "Error KTX"};
 
           static int load_selected = -1;
           if (ImGui::Combo("Select data##load", &load_selected, load_options.data(), load_options.size())) {
@@ -636,6 +706,11 @@ struct update_pass : texpress::render_pass
 
               tex_out = &tex_decoded;
               break;
+            case 5:
+              texpress::load_ktx(load_path, tex_error);
+
+              tex_out = &tex_error;
+              break;
             }
           }
 
@@ -644,6 +719,20 @@ struct update_pass : texpress::render_pass
             ImGui::CloseCurrentPopup();
 
           ImGui::EndPopup();
+        }
+
+        if (ImGui::Button("Angular Error")) {
+          if (!tex_source.data.empty()) {
+            angular_error<float, 3> (tex_source, tex_decoded, tex_error);
+            tex_out = &tex_error;
+          }
+        }
+
+        if (ImGui::Button("Distance Error")) {
+          if (!tex_source.data.empty()) {
+            distance_error<float, 3>(tex_source, tex_decoded, tex_error);
+            tex_out = &tex_error;
+          }
         }
 
         if (ImGui::Button("Compare")) {
@@ -667,8 +756,28 @@ struct update_pass : texpress::render_pass
       // Right menu side
       {
         ImGuiWindowFlags window_flags = ImGuiWindowFlags_HorizontalScrollbar;
-        window_flags |= ImGuiWindowFlags_NoScrollWithMouse;
         ImGui::BeginChild("ChildR", { ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().y * 0.5f }, false, window_flags);
+        ImGui::Text("Source Field: "); ImGui::SameLine();
+        ImGui::Text((std::to_string(tex_source.bytes() / (1024 * 1024)) + "MB").c_str()); ImGui::SameLine();
+        if (ImGui::Button("Delete##source")) { tex_source.data.clear(); tex_source.data.shrink_to_fit(); }
+
+        ImGui::Text("Normalized Field: "); ImGui::SameLine();
+        ImGui::Text((std::to_string(tex_normalized.bytes() / (1024 * 1024)) + "MB").c_str()); ImGui::SameLine();
+        if (ImGui::Button("Delete##normalized")) { tex_normalized.data.clear(); tex_normalized.data.shrink_to_fit();}
+
+        ImGui::Text("Encoded Field: "); ImGui::SameLine();
+        ImGui::Text((std::to_string(tex_encoded.bytes() / (1024 * 1024)) + "MB").c_str()); ImGui::SameLine();
+        if (ImGui::Button("Delete##encoded")) { tex_encoded.data.clear(); tex_encoded.data.shrink_to_fit();}
+
+        ImGui::Text("Decoded Field: "); ImGui::SameLine();
+        ImGui::Text((std::to_string(tex_decoded.bytes() / (1024 * 1024)) + "MB").c_str()); ImGui::SameLine();
+        if (ImGui::Button("Delete##decoded")) { tex_decoded.data.clear(); tex_decoded.data.shrink_to_fit();}
+
+        ImGui::Text("Error Field: "); ImGui::SameLine();
+        ImGui::Text((std::to_string(tex_error.bytes() / (1024 * 1024)) + "MB").c_str()); ImGui::SameLine();
+        if (ImGui::Button("Delete##error")) { tex_error.data.clear(); tex_error.data.shrink_to_fit();}
+
+        
         ImGui::Text("HDF5 File");
         // Visualize HDF5 structure
         if (!hdf5_structure.empty()) {
@@ -819,6 +928,7 @@ struct update_pass : texpress::render_pass
   texpress::Texture tex_normalized;
   texpress::Texture tex_encoded;
   texpress::Texture tex_decoded;
+  texpress::Texture tex_error;
   texpress::Texture* tex_in;
   texpress::Texture* tex_out;
 
