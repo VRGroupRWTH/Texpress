@@ -85,6 +85,7 @@ namespace texpress
     bool decompress(const EncoderData& input, EncoderData& output, uint64_t slice);
     bool decompress(const nvtt::Format encoding, const EncoderData& input, EncoderData& output);
     bool decompress(const nvtt::Format encoding, const EncoderData& input, EncoderData& output, uint64_t slice);
+    bool decompress_gpu(const nvtt::Format encoding, const EncoderData& input, EncoderData& output);
 
     //static Texture<uint8_t> compress_bc6h_nvtt(const Texture<float>& input);
     //static Texture<float> decompress_bc6h_nvtt(const Texture<uint8_t>& input);

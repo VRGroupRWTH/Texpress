@@ -1,4 +1,8 @@
 #include <texpress/compression/compressor.hpp>
+#include <memory>
+#include <globjects/globjects.h>
+#include <globjects/base/StaticStringSource.h>
+#include <glbinding/glbinding.h>
 #include <glbinding/gl45/enum.h>
 #include <spdlog/spdlog.h>
 
@@ -121,7 +125,8 @@ namespace texpress {
 
   uint64_t Encoder::decoded_size(const EncoderData& input, bool hdr) {
     uint64_t element_bytes = (hdr) ? sizeof(float) : sizeof(uint8_t);
-    return input.dim_x * input.dim_y * input.dim_z * input.dim_t * input.channels * element_bytes;
+    uint64_t decoded_channels = input.channels;
+    return input.dim_x * input.dim_y * input.dim_z * input.dim_t * decoded_channels * element_bytes;
   }
 
   bool Encoder::compress(const EncoderSettings& settings, const EncoderData& input, EncoderData& output) {
@@ -277,6 +282,8 @@ namespace texpress {
 
     if (input.gl_internal == (uint32_t)gl::GLenum::GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT) {
       busy.store(false);
+      //return decompress_gpu(nvtt::Format::Format_BC6S, input, output);
+
       return decompress(nvtt::Format::Format_BC6S, input, output);
     }
 
@@ -323,7 +330,8 @@ namespace texpress {
       return false;
     }
 
-    uint64_t buffer_size = input.dim_x * input.dim_y * input.dim_z * input.dim_t * input.channels * sizeof(float);
+    int output_channels = 3;
+    uint64_t buffer_size = input.dim_x * input.dim_y * input.dim_z * input.dim_t * output_channels * sizeof(float);
     if (buffer_size > output.data_bytes) {
       spdlog::error("Output Buffer {0} bytes too small", buffer_size - output.data_bytes);
       busy.store(false);
@@ -360,11 +368,11 @@ namespace texpress {
     output.dim_y = input.dim_y;
     output.dim_z = input.dim_z;
     output.dim_t = input.dim_t;
-    output.channels = input.channels;
+    output.channels = output_channels;
     //output.gl_format = (uint32_t)gl::GLenum::GL_RGBA;
     //output.gl_internal = (uint32_t)gl::GLenum::GL_RGBA32F;
-    output.gl_format = (uint32_t) gl_internal(input.channels, 32, true);
-    output.gl_format = (uint32_t) gl_format(input.channels);
+    output.gl_format = (uint32_t) gl_internal(output.channels, 32, true);
+    output.gl_format = (uint32_t) gl_format(output.channels);
 
     busy.store(false);
     return true;
@@ -382,7 +390,9 @@ namespace texpress {
       return false;
     }
 
-    uint64_t buffer_size = input.dim_x * input.dim_y * input.channels * sizeof(float);
+    output.channels = input.channels;
+
+    uint64_t buffer_size = input.dim_x * input.dim_y * output.channels * sizeof(float);
     if (buffer_size > output.data_bytes) {
       spdlog::error("Output Buffer {0} bytes too small", buffer_size - output.data_bytes);
       busy.store(false);
@@ -394,41 +404,114 @@ namespace texpress {
     nvtt::Surface surface;
     surface.setImage3D(encoding, input.dim_x, input.dim_y, 1, input.data_ptr + offset);
 
-    const float* r_ptr = (input.channels >= 1) ? surface.channel(0) : nullptr;
-    const float* g_ptr = (input.channels >= 2) ? surface.channel(1) : nullptr;
-    const float* b_ptr = (input.channels >= 3) ? surface.channel(2) : nullptr;
-    const float* a_ptr = (input.channels >= 4) ? surface.channel(3) : nullptr;
+    const float* r_ptr = (output.channels >= 1) ? surface.channel(0) : nullptr;
+    const float* g_ptr = (output.channels >= 2) ? surface.channel(1) : nullptr;
+    const float* b_ptr = (output.channels >= 3) ? surface.channel(2) : nullptr;
+    const float* a_ptr = (output.channels >= 4) ? surface.channel(3) : nullptr;
 
     float* out_ptr = reinterpret_cast<float*>(output.data_ptr);
+    uint32_t processed = 0;
     for (auto p = 0; p < input.dim_x * input.dim_y; p++) {
       if (r_ptr) {
-        out_ptr[p * input.channels + 0] = r_ptr[p];
+        out_ptr[p * output.channels + 0] = r_ptr[p];
+        processed++;
       }
       if (g_ptr) {
-        out_ptr[p * input.channels + 1] = g_ptr[p];
+        out_ptr[p * output.channels + 1] = g_ptr[p];
+        processed++;
       }
       if (b_ptr) {
-        out_ptr[p * input.channels + 2] = b_ptr[p];
+        out_ptr[p * output.channels + 2] = b_ptr[p];
+        processed++;
       }
       if (a_ptr) {
-        out_ptr[p * input.channels + 3] = a_ptr[p];
+        out_ptr[p * output.channels + 3] = a_ptr[p];
+        processed++;
       }
     }
+
+    output.data_ptr = reinterpret_cast<uint8_t*>(out_ptr + processed);
 
     // Prepare output
     output.dim_x = input.dim_x;
     output.dim_y = input.dim_y;
-    output.dim_z = 1;
+    output.dim_z += 1;
     output.dim_t = 1;
-    output.channels = input.channels;
-    //output.gl_format = (uint32_t)gl::GLenum::GL_RGBA;
-    //output.gl_internal = (uint32_t)gl::GLenum::GL_RGBA32F;
-    output.gl_format = (uint32_t)gl_internal(input.channels, 32, true);
-    output.gl_format = (uint32_t)gl_format(input.channels);
+    output.gl_format = (uint32_t)gl_internal(output.channels, 32, true);
+    output.gl_format = (uint32_t)gl_format(output.channels);
 
     busy.store(false);
     return true;
   }
+
+  bool Encoder::decompress_gpu(const nvtt::Format encoding, const EncoderData& input, EncoderData& output) {
+    static std::string compute_shader_source_text = R"(#version 450
+
+layout (local_size_x = 4, local_size_y = 4, local_size_z = 1) in;
+
+layout(std430, binding=0) buffer output
+{
+  vec4 output_data[];
+};
+
+uniform sampler2DRect input;
+//uniform sampler2DRect output;
+
+uniform uint depth;
+
+void main()
+{
+  ivec2 dimensions = textureSize(input, 0);
+  ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+  uint offset = depth * gl_GlobalInvocationID.y * gl_GlobalInvocationID.x
+  uint idx = offset + gl_GlobalInvocationID.y * gl_GlobalInvocationID.x + gl_GlobalInvocationID.x;
+
+  if (pos.x >= dimensions.x) { return; }
+  if (pos.y >= dimensions.y) { return; }
+
+  output_data[idx] = texelFetch(input, pos, 0);
+
+  //imageStore(output, pos, texelFetch(input, pos, 0));
+})";
+
+    static auto input_texture = globjects::Texture::createDefault(gl::GL_TEXTURE_RECTANGLE);
+    //static auto output_texture = globjects::Texture::createDefault(gl::GL_TEXTURE_RECTANGLE);
+    static auto output_buffer = globjects::Buffer::create();
+    static auto program = globjects::Program::create();
+
+    
+    input_texture->storage2D((gl::GLsizei) 0, gl::GLenum(input.gl_internal), (gl::GLsizei) input.dim_x, (gl::GLsizei) input.dim_y);
+    //output_texture->storage2D((gl::GLsizei)0, gl::GLenum(output.gl_internal), (gl::GLsizei)input.dim_x, (gl::GLsizei)input.dim_y);
+    output_buffer->setData(output.data_bytes, output.data_ptr, gl::GL_STATIC_DRAW);
+
+    static auto compute_shader_source = globjects::Shader::sourceFromString(compute_shader_source_text);
+    static auto compute_shader = globjects::Shader::create(gl::GL_COMPUTE_SHADER, compute_shader_source.get());
+
+    if (!program->isLinked()) {
+      program->attach(compute_shader.get());
+      program->link();
+    }
+
+    uint32_t enc_size_2d = input.data_bytes / input.dim_z;
+    uint32_t dec_size_2d = input.dim_x * input.dim_y * 4 * sizeof(float);
+    uint32_t dec_size = dec_size_2d * input.dim_z;
+
+    uint32_t groups_x = (uint32_t)std::ceil(input.dim_x / 4.0);
+    uint32_t groups_y = (uint32_t)std::ceil(input.dim_y / 4.0);
+
+    for (uint32_t d = 0; d < input.dim_z; d++) {
+      gl::glCompressedTextureSubImage2D(input_texture->id(), 0, 0, 0, input.dim_x, input.dim_y, gl::GLenum(input.gl_internal), enc_size_2d, (const uint8_t*)(input.data_ptr + d * enc_size_2d));
+      input_texture->bindActive(0);
+      program->setUniform("depth", d);
+
+      gl::glDispatchCompute(groups_x, groups_y, 1);
+    }
+
+    output_buffer->getSubData((gl::GLintptr)0, (gl::GLsizeiptr)dec_size_2d * input.dim_z, output.data_ptr);
+
+    return true;
+  }
+
 
   bool Encoder::populate_EncoderData(EncoderData& enc_data, Texture& tex_input) {
     enc_data.gl_format = (uint32_t) tex_input.gl_format;

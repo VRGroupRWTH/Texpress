@@ -118,7 +118,7 @@ namespace texpress {
     gl_internal = gl::GLenum(texture->glInternalformat);
     gl_format = gl::GLenum(texture->glFormat);
     gl_type = gl::GLenum(texture->glType);
-    channels = gl_channels(gl_format);
+    channels = gl_channels(gl_internal);
 
     char* pValue;
     uint32_t valueLen;

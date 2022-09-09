@@ -74,7 +74,7 @@ namespace texpress
 
   inline int gl_channels(gl::GLenum gl_format) {
     switch (gl_format) {
-    case gl::GLenum::GL_R: case gl::GLenum::GL_R8: case gl::GLenum::GL_R16: case gl::GLenum::GL_R16F: case gl::GLenum::GL_R32F:
+    case gl::GLenum::GL_R: case gl::GLenum::GL_RED: case gl::GLenum::GL_R8: case gl::GLenum::GL_R16: case gl::GLenum::GL_R16F: case gl::GLenum::GL_R32F:
       return 1;
     case gl::GLenum::GL_RG: case gl::GLenum::GL_RG8: case gl::GLenum::GL_RG16: case gl::GLenum::GL_RG16F: case gl::GLenum::GL_RG32F:
       return 2;
@@ -83,12 +83,12 @@ namespace texpress
     case gl::GLenum::GL_RGBA: case gl::GLenum::GL_RGBA8: case gl::GLenum::GL_RGBA16: case gl::GLenum::GL_RGBA16F: case gl::GLenum::GL_RGBA32F:
       return 4;
     case gl::GLenum::GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT:
-      return 4;
+      return 3;
     case gl::GLenum::GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT:
-      return 4;
+      return 3;
     }
 
-    return 4;
+    return 0;
   }
 
   inline bool gl_compressed(gl::GLenum gl_internal) {

@@ -1,8 +1,10 @@
 #include <catch2/catch_all.hpp>
 #include <texpress/api.hpp>
+#include <texpress/helpers/imguihelper.hpp>
 #include <texpress/utility/normalize.hpp>
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics.hpp>
+#include <fp16/fp16.h>
 #include <iostream>
 #include <filesystem>
 #include <spdlog/spdlog.h>
@@ -124,8 +126,6 @@ void angular_error(const texpress::Texture& source, const texpress::Texture& dec
 
 template <typename T, int length>
 void distance_error(const texpress::Texture& source, const texpress::Texture& decoded, texpress::Texture& error_out) {
-  if (source.dimensions != decoded.dimensions) { return; }
-
   // Populate error
   error_out.data.clear();
   error_out.data.resize(source.dimensions.x * source.dimensions.y * source.dimensions.z * source.dimensions.w * sizeof(float));
@@ -439,12 +439,20 @@ struct update_pass : texpress::render_pass
           tex_normalized.gl_type = gl::GLenum::GL_FLOAT;
           tex_normalized.data.resize(tex_source.bytes());
           peaks = texpress::find_peaks_per_component<float>(tex_source);
+          /*
+          for (auto& p : peaks) {
+            uint16_t shifted = fp16_ieee_from_fp32_value(p) & 0b1111111111111110;
+            p = fp16_ieee_to_fp32_value(shifted);
+          }
+          */
           float* src_ptr = (float*)tex_source.data.data();
           float* norm_ptr = (float*)tex_normalized.data.data();
           uint64_t id = 0;
           for (uint64_t d = 0; d < tex_normalized.dimensions.z * tex_normalized.dimensions.w; d++) {
             for (uint64_t p = 0; p < tex_normalized.dimensions.x * tex_normalized.dimensions.y; p++) {
               for (int c = 0; c < tex_normalized.channels; c++) {
+                //uint16_t shifted = fp16_ieee_from_fp32_value(src_ptr[id]) & 0b1111111111111110;
+                //norm_ptr[id] = texpress::normalize_val_per_component(fp16_ieee_to_fp32_value(shifted), tex_source.channels, peaks, d, c);
                 norm_ptr[id] = texpress::normalize_val_per_component(src_ptr[id], tex_source.channels, peaks, d, c);
                 id++;
               }
@@ -469,7 +477,6 @@ struct update_pass : texpress::render_pass
             for (uint64_t p = 0; p < tex_decoded.dimensions.x * tex_decoded.dimensions.y; p++) {
               for (int c = 0; c < tex_decoded.channels; c++) {
                 dec_ptr[id] = texpress::denormalize_per_component(norm_ptr[id], tex_normalized.channels, peaks, d, c);
-
                 id++;
               }
             }
@@ -482,7 +489,7 @@ struct update_pass : texpress::render_pass
         static int compress_selected = 0;
 
         static bool compress_normalized = false;
-        if (ImGui::Button("Compress BC6H") && !tex_source.data.empty()) {
+        if (ImGui::Button("Compress BC6H") && (!tex_source.data.empty() || !tex_normalized.data.empty())) {
           texpress::EncoderSettings settings{};
           settings.use_weights = false;
 
@@ -491,8 +498,8 @@ struct update_pass : texpress::render_pass
           }
 
           if (compress_normalized) {
-            settings.encoding = nvtt::Format::Format_BC6S;
-            //settings.encoding = nvtt::Format::Format_BC6U;
+            //settings.encoding = nvtt::Format::Format_BC6S;
+            settings.encoding = nvtt::Format::Format_BC6U;
           }
           else {
             settings.encoding = nvtt::Format::Format_BC6S;
@@ -551,11 +558,17 @@ struct update_pass : texpress::render_pass
           output.data_bytes = encoder->decoded_size(input);
           tex_decoded.data.resize(output.data_bytes);
           output.data_ptr = reinterpret_cast<uint8_t*>(tex_decoded.data.data());
-
+          
+          /*
           if (encoder->decompress(input, output)) {
             spdlog::info("Decompressed!");
           }
-
+          */
+          
+          for (uint32_t d = 0; d < tex_encoded.dimensions.z * tex_encoded.dimensions.w; d++) {
+            encoder->decompress(input, output, d);
+          }
+          
           texpress::Encoder::populate_Texture(tex_decoded, output);
 
           if (peaks.empty()) {
@@ -693,8 +706,8 @@ struct update_pass : texpress::render_pass
               break;
             case 2:
               peaks.clear();
-              peaks.resize(texpress::file_size(load_path));
-              texpress::file_read(load_path, (char*)peaks.data(), peaks.size());
+              peaks.resize(texpress::file_size(load_path) / sizeof(float));
+              texpress::file_read(load_path, (char*)peaks.data(), peaks.size() * sizeof(float));
               break;
             case 3:
               texpress::load_ktx(load_path, tex_encoded);
@@ -759,23 +772,48 @@ struct update_pass : texpress::render_pass
         ImGui::BeginChild("ChildR", { ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().y * 0.5f }, false, window_flags);
         ImGui::Text("Source Field: "); ImGui::SameLine();
         ImGui::Text((std::to_string(tex_source.bytes() / (1024 * 1024)) + "MB").c_str()); ImGui::SameLine();
-        if (ImGui::Button("Delete##source")) { tex_source.data.clear(); tex_source.data.shrink_to_fit(); }
+        if (ImGui::Button("Delete##source")) {
+          if (tex_in == &tex_source) { tex_in = nullptr; }
+          if (tex_out == &tex_source) { tex_out = nullptr; }
+          tex_source.data.clear();
+          tex_source.data.shrink_to_fit();
+        }
 
         ImGui::Text("Normalized Field: "); ImGui::SameLine();
         ImGui::Text((std::to_string(tex_normalized.bytes() / (1024 * 1024)) + "MB").c_str()); ImGui::SameLine();
-        if (ImGui::Button("Delete##normalized")) { tex_normalized.data.clear(); tex_normalized.data.shrink_to_fit();}
+        if (ImGui::Button("Delete##normalized")) {
+          if (tex_in == &tex_normalized) { tex_in = nullptr; }
+          if (tex_out == &tex_normalized) { tex_out = nullptr; }
+          tex_normalized.data.clear();
+          tex_normalized.data.shrink_to_fit();
+        }
 
         ImGui::Text("Encoded Field: "); ImGui::SameLine();
         ImGui::Text((std::to_string(tex_encoded.bytes() / (1024 * 1024)) + "MB").c_str()); ImGui::SameLine();
-        if (ImGui::Button("Delete##encoded")) { tex_encoded.data.clear(); tex_encoded.data.shrink_to_fit();}
+        if (ImGui::Button("Delete##encoded")) {
+          if (tex_in == &tex_encoded) { tex_in = nullptr; }
+          if (tex_out == &tex_encoded) { tex_out = nullptr; }
+          tex_encoded.data.clear();
+          tex_encoded.data.shrink_to_fit();
+        }
 
         ImGui::Text("Decoded Field: "); ImGui::SameLine();
         ImGui::Text((std::to_string(tex_decoded.bytes() / (1024 * 1024)) + "MB").c_str()); ImGui::SameLine();
-        if (ImGui::Button("Delete##decoded")) { tex_decoded.data.clear(); tex_decoded.data.shrink_to_fit();}
+        if (ImGui::Button("Delete##decoded")) {
+          if (tex_in == &tex_decoded) { tex_in = nullptr; }
+          if (tex_out == &tex_decoded) { tex_out = nullptr; }
+          tex_decoded.data.clear();
+          tex_decoded.data.shrink_to_fit();
+        }
 
         ImGui::Text("Error Field: "); ImGui::SameLine();
         ImGui::Text((std::to_string(tex_error.bytes() / (1024 * 1024)) + "MB").c_str()); ImGui::SameLine();
-        if (ImGui::Button("Delete##error")) { tex_error.data.clear(); tex_error.data.shrink_to_fit();}
+        if (ImGui::Button("Delete##error")) {
+          if (tex_in == &tex_error) { tex_in = nullptr; }
+          if (tex_out == &tex_error) { tex_out = nullptr; }
+          tex_error.data.clear();
+          tex_error.data.shrink_to_fit();
+        }
 
         
         ImGui::Text("HDF5 File");
@@ -842,7 +880,7 @@ struct update_pass : texpress::render_pass
       {
         ImGui::BeginChild("ChildBL", { ImGui::GetContentRegionAvail().x * 0.5f, ImGui::GetContentRegionAvail().y }, false, window_flags);
         if (ImGui::CollapsingHeader("Source Data")) {
-          if (gl_tex_in) {
+          if (gl_tex_in && tex_in) {
             ImGui::Checkbox("Sync Sliders", &sync_sliders);
 
             uint64_t min = 0;
@@ -875,8 +913,8 @@ struct update_pass : texpress::render_pass
       
       {
         ImGui::BeginChild("ChildBR", { ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().y }, false, window_flags);
-        if (ImGui::CollapsingHeader("Encoded Data")) {
-          if (gl_tex_out) {
+        if (ImGui::CollapsingHeader("Out Data")) {
+          if (gl_tex_out && tex_out) {
             ImGui::Checkbox("Sync Sliders", &sync_sliders);
 
             uint64_t min = 0;
@@ -903,7 +941,7 @@ struct update_pass : texpress::render_pass
             ImGui::Text("Size: %i MB", (tex_out->bytes() / (1000 * 1000)));
             ImGui::Text("Dimensions: %ix%ix%ix%i", tex_out->dimensions.x, tex_out->dimensions.y, tex_out->dimensions.z, tex_out->dimensions.w);
             ImGui::Text("Channels: %i", tex_out->channels);
-            ImGui::Text("Compression Ratio: %f.4%%", (uint16_t)tex_out->bytes() / std::max(tex_source.bytes(), (uint64_t)1));
+            ImGui::Text("Compression Ratio: %i%:1", tex_in->bytes() / std::max(tex_out->bytes(), 1ULL));
             ImGui::EndGroup();
           }
         }
@@ -912,8 +950,6 @@ struct update_pass : texpress::render_pass
       }
 
       ImGui::End();
-
-      ImGui::ShowDemoWindow();
     };
   }
 
