@@ -136,7 +136,7 @@ namespace texpress {
       return false;
     }
 
-    int bits = (input.data_bytes / (input.dim_x * input.dim_y * input.dim_z * input.dim_t * input.channels)) * 8;
+    int bits = (input.data_bytes / uint64_t(input.dim_x * input.dim_y * input.dim_z * input.dim_t * uint64_t(input.channels))) * 8ULL;
 
     if (!output.data_ptr) {
       spdlog::error("Output Buffer not initialized");
