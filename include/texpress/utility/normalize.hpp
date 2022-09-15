@@ -209,6 +209,24 @@ namespace texpress {
     return static_cast<float>(value) / (max);
   }
 
+  template <typename T>
+  static float normalize_val_per_volume(T value, int vec_len, const glm::vec3& minimum, const glm::vec3& maximum, int component)
+  {
+    float min = minimum[component];
+    float max = maximum[component];
+
+    // Valid
+    if (min != max)
+      return (static_cast<float>(value) - min) / (max - min);
+
+    // Don't divide by 0
+    if (min == 0)
+      return static_cast<float>(value);
+
+    // Still don't divide by 0, but normalize if you can (doesn't matter if you choose division by max or min)
+    return static_cast<float>(value) / (max);
+  }
+
 
   static float denormalize_float(float value, const std::vector<float>& peaks, std::size_t depth_level)
   {
@@ -232,6 +250,24 @@ namespace texpress {
   {
     float min = peaks[2 * (depth_level * vec_len + component)];
     float max = peaks[2 * (depth_level * vec_len + component) + 1];
+
+    // Valid
+    if (min != max)
+      return value * (max - min) + min;
+
+    // Edge case: min = max = 0
+    if (min == 0)
+      return value;
+
+    // Edge case: min = max
+    return value * (max);
+  }
+
+  template <typename T>
+  static T denormalize_per_volume(T value, int vec_len, const glm::vec3& minimum, const glm::vec3& maximum, int component)
+  {
+    float min = minimum[component];
+    float max = maximum[component];
 
     // Valid
     if (min != max)

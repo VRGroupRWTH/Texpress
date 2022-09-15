@@ -431,6 +431,7 @@ struct update_pass : texpress::render_pass
           configuration_changed = false;
         }
 
+        static int normalize_mode = 0;
         if (ImGui::Button("Normalize Source")) {
           tex_normalized.channels = tex_source.channels;
           tex_normalized.dimensions = tex_source.dimensions;
@@ -439,28 +440,66 @@ struct update_pass : texpress::render_pass
           tex_normalized.gl_type = gl::GLenum::GL_FLOAT;
           tex_normalized.data.resize(tex_source.bytes());
           peaks = texpress::find_peaks_per_component<float>(tex_source);
-          /*
-          for (auto& p : peaks) {
-            uint16_t shifted = fp16_ieee_from_fp32_value(p) & 0b1111111111111110;
-            p = fp16_ieee_to_fp32_value(shifted);
-          }
-          */
-          float* src_ptr = (float*)tex_source.data.data();
-          float* norm_ptr = (float*)tex_normalized.data.data();
-          uint64_t id = 0;
-          for (uint64_t d = 0; d < tex_normalized.dimensions.z * tex_normalized.dimensions.w; d++) {
-            for (uint64_t p = 0; p < tex_normalized.dimensions.x * tex_normalized.dimensions.y; p++) {
-              for (int c = 0; c < tex_normalized.channels; c++) {
-                //uint16_t shifted = fp16_ieee_from_fp32_value(src_ptr[id]) & 0b1111111111111110;
-                //norm_ptr[id] = texpress::normalize_val_per_component(fp16_ieee_to_fp32_value(shifted), tex_source.channels, peaks, d, c);
-                norm_ptr[id] = texpress::normalize_val_per_component(src_ptr[id], tex_source.channels, peaks, d, c);
-                id++;
+
+          if (normalize_mode == 0) {
+            /*
+            for (auto& p : peaks) {
+              uint16_t shifted = fp16_ieee_from_fp32_value(p) & 0b1111111111111110;
+              p = fp16_ieee_to_fp32_value(shifted);
+            }
+            */
+            float* src_ptr = (float*)tex_source.data.data();
+            float* norm_ptr = (float*)tex_normalized.data.data();
+            uint64_t id = 0;
+            for (uint64_t d = 0; d < tex_normalized.dimensions.z * tex_normalized.dimensions.w; d++) {
+              for (uint64_t p = 0; p < tex_normalized.dimensions.x * tex_normalized.dimensions.y; p++) {
+                for (int c = 0; c < tex_normalized.channels; c++) {
+                  //uint16_t shifted = fp16_ieee_from_fp32_value(src_ptr[id]) & 0b1111111111111110;
+                  //norm_ptr[id] = texpress::normalize_val_per_component(fp16_ieee_to_fp32_value(shifted), tex_source.channels, peaks, d, c);
+                  norm_ptr[id] = texpress::normalize_val_per_component(src_ptr[id], tex_source.channels, peaks, d, c);
+                  id++;
+                }
               }
             }
           }
+          else {
+            glm::vec3* peak_ptr = (glm::vec3*)peaks.data();
+            min = glm::vec3(INFINITY);
+            max = glm::vec3(-INFINITY);
 
+            for (uint32_t i = 0; i < peaks.size() / (3 * 2); i += 2) {
+              const auto& p_min = peak_ptr[i];
+              const auto& p_max = peak_ptr[i + 1];
+              min.x = (min.x <= p_min.x) ? min.x : p_min.x;
+              min.y = (min.y <= p_min.y) ? min.y : p_min.y;
+              min.z = (min.z <= p_min.z) ? min.z : p_min.z;
+
+              max.x = (max.x >= p_max.x) ? max.x : p_max.x;
+              max.y = (max.y >= p_max.y) ? max.y : p_max.y;
+              max.z = (max.z >= p_max.z) ? max.z : p_max.z;
+            }
+
+            float* src_ptr = (float*)tex_source.data.data();
+            float* norm_ptr = (float*)tex_normalized.data.data();
+            uint64_t id = 0;
+            for (uint64_t d = 0; d < tex_normalized.dimensions.z * tex_normalized.dimensions.w; d++) {
+              for (uint64_t p = 0; p < tex_normalized.dimensions.x * tex_normalized.dimensions.y; p++) {
+                for (int c = 0; c < tex_normalized.channels; c++) {
+                  //uint16_t shifted = fp16_ieee_from_fp32_value(src_ptr[id]) & 0b1111111111111110;
+                  //norm_ptr[id] = texpress::normalize_val_per_component(fp16_ieee_to_fp32_value(shifted), tex_source.channels, peaks, d, c);
+                  norm_ptr[id] = texpress::normalize_val_per_volume(src_ptr[id], tex_source.channels, min, max, c);
+                  id++;
+                }
+              }
+            }
+
+          }
           tex_out = &tex_normalized;
         }
+        ImGui::SameLine();
+        ImGui::RadioButton("Slice based##norm", &normalize_mode, 0);
+        ImGui::SameLine();
+        ImGui::RadioButton("Volume based##norm", &normalize_mode, 1);
 
         if (ImGui::Button("Denormalize Source") && !tex_normalized.data.empty()) {
           tex_decoded.channels = tex_normalized.channels;
@@ -476,7 +515,12 @@ struct update_pass : texpress::render_pass
           for (uint64_t d = 0; d < tex_decoded.dimensions.z * tex_decoded.dimensions.w; d++) {
             for (uint64_t p = 0; p < tex_decoded.dimensions.x * tex_decoded.dimensions.y; p++) {
               for (int c = 0; c < tex_decoded.channels; c++) {
-                dec_ptr[id] = texpress::denormalize_per_component(norm_ptr[id], tex_normalized.channels, peaks, d, c);
+                if (normalize_mode == 0) {
+                  dec_ptr[id] = texpress::denormalize_per_component(norm_ptr[id], tex_normalized.channels, peaks, d, c);
+                }
+                else {
+                  dec_ptr[id] = texpress::denormalize_per_volume(norm_ptr[id], tex_normalized.channels, min, max, c);
+                }
                 id++;
               }
             }
@@ -484,6 +528,11 @@ struct update_pass : texpress::render_pass
 
           tex_out = &tex_decoded;
         }
+        ImGui::SameLine();
+        ImGui::RadioButton("Slice based##denorm_src", &normalize_mode, 0);
+        ImGui::SameLine();
+        ImGui::RadioButton("Volume based##denorm_src", &normalize_mode, 1);
+
 
         static const std::vector<char*> compress_options = {"Fast", "Medium", "Production", "Highest"};
         static int compress_selected = 0;
@@ -581,7 +630,12 @@ struct update_pass : texpress::render_pass
             for (uint64_t d = 0; d < tex_decoded.dimensions.z * tex_decoded.dimensions.w; d++) {
               for (uint64_t p = 0; p < tex_decoded.dimensions.x * tex_decoded.dimensions.y; p++) {
                 for (int c = 0; c < tex_decoded.channels; c++) {
-                  dec_ptr[id] = texpress::denormalize_per_component(dec_ptr[id], tex_decoded.channels, peaks, d, c);
+                  if (normalize_mode == 0) {
+                    dec_ptr[id] = texpress::denormalize_per_component(dec_ptr[id], tex_normalized.channels, peaks, d, c);
+                  }
+                  else {
+                    dec_ptr[id] = texpress::denormalize_per_volume(dec_ptr[id], tex_normalized.channels, min, max, c);
+                  }
 
                   id++;
                 }
@@ -596,6 +650,12 @@ struct update_pass : texpress::render_pass
 
         ImGui::SameLine();
         ImGui::Checkbox("Denormalize on decompression", &decompress_and_denormalize);
+        if (decompress_and_denormalize) {
+          ImGui::SameLine();
+          ImGui::RadioButton("Slice based##denorm_enc", &normalize_mode, 0);
+          ImGui::SameLine();
+          ImGui::RadioButton("Volume based##denorm_enc", &normalize_mode, 1);
+        }
 
         if (ImGui::Button("Save")) {
           ImGui::SetNextWindowSize(ImGui::GetContentRegionAvail());
@@ -999,6 +1059,8 @@ struct update_pass : texpress::render_pass
   uint64_t image_level;
 
   std::vector<float> peaks;
+  glm::vec3 min;
+  glm::vec3 max;
 
   // Threads
   std::thread t_encoder;
