@@ -46,7 +46,7 @@ uint64_t texpress::file_size(const char* path) {
 
 bool texpress::file_read(const char* path, char* buffer, uint64_t buffer_size, FileType type) {
   // Default: open file at the end of file
-  std::ios::ios_base::openmode file_mode = std::ios::in | std::ios::ate;
+  std::ios::ios_base::openmode file_mode = std::ios::ate;
 
   // Bbinary data
   if (type == FileType::FILE_BINARY) {
@@ -54,8 +54,7 @@ bool texpress::file_read(const char* path, char* buffer, uint64_t buffer_size, F
   }
 
   // Open file
-  std::ifstream file;
-  file.open(path, file_mode);
+  std::ifstream file(path, file_mode);
   
   if (!file.is_open()) {
     spdlog::warn("File " + std::string(path) + "could not be opened!");
@@ -68,6 +67,7 @@ bool texpress::file_read(const char* path, char* buffer, uint64_t buffer_size, F
   std::streampos begin = file.tellg();
   double file_size = end - begin;
 
+  
   if (file_size > buffer_size) {
     spdlog::error("Provided buffer for file " + std::string(path) + "is too small: "
       + std::to_string(buffer_size) + "<" + std::to_string(file_size));
@@ -75,13 +75,10 @@ bool texpress::file_read(const char* path, char* buffer, uint64_t buffer_size, F
     file.close();
     return false;
   }
-
+  
   // Read file
-  if (type == FileType::FILE_BINARY) {
-    file.read(buffer, end);
-  }
-  else {
-    file.read(buffer, end);
+  if (!file.read(buffer, end)) {
+    spdlog::warn("Problem during fileread");
   }
 
   file.close();

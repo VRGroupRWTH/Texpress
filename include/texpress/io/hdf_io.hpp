@@ -94,6 +94,7 @@ namespace texpress
         elements_flat += elements.back();
       }
 
+      spdlog::info(elements_flat * sizeof(T));
       input.resize(elements_flat * sizeof(T));
       T* input_ptr = (T*)input.data();
       std::vector<T> slice(*std::max_element(elements.begin(), elements.end()));

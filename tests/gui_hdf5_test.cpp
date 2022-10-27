@@ -15,6 +15,7 @@
 #define IMGUI_COLOR_HDFDATASET ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(206/255.f, 229/255.f, 208/255.f, 255/255.f))
 #define IMGUI_COLOR_HDFOTHER ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(252/255.f, 248/255.f, 232/255.f, 255/255.f))
 #define IMGUI_UNCOLOR ImGui::PopStyleColor()
+#define PI 3.14159265359
 
 using namespace boost::accumulators;
 
@@ -279,6 +280,14 @@ struct update_pass : texpress::render_pass
     , offset_x(0)
     , offset_y(0)
     , offset_z(0)
+    , abc_x0(-100)
+    , abc_y0(0)
+    , abc_z0(-100)
+    , abc_t0(0)
+    , abc_x1(125)
+    , abc_y1(250)
+    , abc_z1(100)
+    , abc_t1(151)
     , gl_tex_in(globjects::Texture::createDefault())
     , gl_tex_out(globjects::Texture::createDefault())
     , hdf5_file(nullptr)
@@ -347,6 +356,96 @@ struct update_pass : texpress::render_pass
         }
         ImGui::SameLine();
         ImGui::InputText("##Filepath", buf_path, 128);
+        if (ImGui::Button("Select ABC Field")) {
+          uint64_t abc_x, abc_y, abc_z, abc_t;
+          abc_x = abc_x1 - abc_x0;
+          abc_y = abc_y1 - abc_y0;
+          abc_z = abc_z1 - abc_z0;
+          abc_t = abc_t1 - abc_t0;
+          tex_source.channels = 3;
+          tex_source.dimensions = {abc_x, abc_y, abc_z, abc_t};
+          auto buffersize = uint64_t(abc_x) * uint64_t(abc_y) * uint64_t(abc_z) * uint64_t(abc_t) * uint64_t(tex_source.channels) * sizeof(float);
+          tex_source.data.resize(buffersize);
+          tex_source.gl_internal = texpress::gl_internal(tex_source.channels, 32, true);
+          tex_source.gl_format = texpress::gl_format(tex_source.channels);
+          tex_source.gl_type = gl::GLenum::GL_FLOAT;
+          tex_in = &tex_source;
+
+          const float A_PARAM = glm::sqrt(3);
+          const float B_PARAM = glm::sqrt(2);
+          const float C_PARAM = 1.0;
+          const float c_pos = 0.1;
+          const float c_t1 = 0.05;
+          const float c_t2 = 0.01;
+
+          glm::vec3* ptr = (glm::vec3*)tex_source.data.data();
+          uint64_t offset = 0;
+          for (auto t = abc_t0; t < abc_t1; t++) {
+            float time = t;
+            float a_coeff = A_PARAM + c_t1 * time * glm::sin(PI * time * c_t2);
+
+            for (auto z = abc_z0; z < abc_z1; z++) {
+              for (auto y = abc_y0; y < abc_y1; y++) {
+                for (auto x = abc_x0; x < abc_x1; x++) {
+                  glm::vec3 pos(x, y, z);
+                  glm::vec3 velo(a_coeff * sin(pos.z * c_pos) + B_PARAM * cos(pos.y * c_pos),
+                                 B_PARAM * sin(pos.x * c_pos) + C_PARAM * cos(pos.z * c_pos),
+                                 C_PARAM * sin(pos.y * c_pos) + a_coeff * cos(pos.x * c_pos));
+
+                  ptr[offset] = velo;
+
+                  offset++;
+                }
+              }
+            }
+          }
+
+          configuration_changed = false;
+        }
+        ImGui::SameLine();
+        ImGui::Text("[X x Y x Z x T]");
+        const float item_width = 50.0;
+        ImGui::SameLine();
+        ImGui::BeginGroup();
+        ImGui::SetNextItemWidth(item_width);
+        if (ImGui::InputInt("##ABC X0", &abc_x0, 0, 500)) {
+          configuration_changed = true;
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(item_width);
+        if (ImGui::InputInt("##ABC Y0", &abc_y0, 0, 500)) {
+          configuration_changed = true;
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(item_width);
+        if (ImGui::InputInt("##ABC Z0", &abc_z0, 0, 500)) {
+          configuration_changed = true;
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(item_width);
+        if (ImGui::InputInt("##ABC T0", &abc_t0, 0, 500)) {
+          configuration_changed = true;
+        }
+        ImGui::SetNextItemWidth(item_width);
+        if (ImGui::InputInt("##ABC X1", &abc_x1, 0, 500)) {
+          configuration_changed = true;
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(item_width);
+        if (ImGui::InputInt("##ABC Y1", &abc_y1, 0, 500)) {
+          configuration_changed = true;
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(item_width);
+        if (ImGui::InputInt("##ABC Z1", &abc_z1, 0, 500)) {
+          configuration_changed = true;
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(item_width);
+        if (ImGui::InputInt("##ABC T1", &abc_t1, 0, 500)) {
+          configuration_changed = true;
+        }
+        ImGui::EndGroup();
 
         struct Funcs {
           static int cb(ImGuiInputTextCallbackData* data) {
@@ -676,14 +775,21 @@ struct update_pass : texpress::render_pass
 
           static bool array2d = false;
           static bool monolithic = true;
+          static bool binary = false;
           ImGui::Checkbox("As 2DArray", &array2d); ImGui::SameLine(); 
           ImGui::Checkbox("As Single File", &monolithic);
+          ImGui::Checkbox("As Binary File", &binary);
 
           if (ImGui::Button("Save as KTX")) {
             switch (save_selected) {
             case 0:
               if (!tex_source.data.empty()) {
-                texpress::save_ktx(tex_source, save_path, array2d, monolithic);
+                if (binary) {
+                  texpress::file_save(save_path, (char*)tex_source.data.data(), tex_source.bytes());
+                }
+                else {
+                  texpress::save_ktx(tex_source, save_path, array2d, monolithic);
+                }
               }
               break;
             case 1:
@@ -750,14 +856,34 @@ struct update_pass : texpress::render_pass
             }
           }
 
+          static bool binary = false;
+          ImGui::Checkbox("As Binary File##2", &binary);
+
           ImGui::InputText("##Loadpath", load_path, 128);
 
           if (ImGui::Button("Load##Action")) {
             switch (load_selected) {
             case 0:
-              texpress::load_ktx(load_path, tex_source);
+              if (binary) {
+                uint64_t abc_x, abc_y, abc_z, abc_t;
+                abc_x = abc_x1 - abc_x0;
+                abc_y = abc_y1 - abc_y0;
+                abc_z = abc_z1 - abc_z0;
+                abc_t = abc_t1 - abc_t0;
+                tex_source.channels = 3;
+                tex_source.dimensions = { abc_x, abc_y, abc_z, abc_t };
+                tex_source.gl_internal = texpress::gl_internal(tex_source.channels, 32, true);
+                tex_source.gl_format = texpress::gl_format(tex_source.channels);
+                tex_source.gl_type = gl::GLenum::GL_FLOAT;
 
-              tex_in = &tex_source;
+                tex_source.data.resize(texpress::file_size(load_path));
+                texpress::file_read(load_path, (char*)tex_source.data.data(), tex_source.bytes());
+                tex_in = &tex_source;
+              }
+              else {
+                texpress::load_ktx(load_path, tex_source);
+                tex_in = &tex_source;
+              }
               break;
             case 1:
               texpress::load_ktx(load_path, tex_normalized);
@@ -1051,6 +1177,14 @@ struct update_pass : texpress::render_pass
   int offset_x;
   int offset_y;
   int offset_z;
+  int abc_x0;
+  int abc_y0;
+  int abc_z0;
+  int abc_t0;
+  int abc_x1;
+  int abc_y1;
+  int abc_z1;
+  int abc_t1;
   uint64_t depth_src;
   uint64_t depth_enc;
   bool configuration_changed;
