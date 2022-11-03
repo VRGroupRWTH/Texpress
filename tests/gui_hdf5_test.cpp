@@ -11,6 +11,7 @@
 #include <thread>
 #include <future>
 #include <fp16.h>
+#include <chrono>
 #define IMGUI_COLOR_HDFGROUP ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(148/255.f, 180/255.f, 159/255.f, 255/255.f))
 #define IMGUI_COLOR_HDFDATASET ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(206/255.f, 229/255.f, 208/255.f, 255/255.f))
 #define IMGUI_COLOR_HDFOTHER ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(252/255.f, 248/255.f, 232/255.f, 255/255.f))
@@ -374,7 +375,7 @@ struct update_pass : texpress::render_pass
           const float A_PARAM = glm::sqrt(3);
           const float B_PARAM = glm::sqrt(2);
           const float C_PARAM = 1.0;
-          const float c_pos = 0.1;
+          const float c_pos = 0.05;
           const float c_t1 = 0.05;
           const float c_t2 = 0.01;
 
@@ -388,9 +389,9 @@ struct update_pass : texpress::render_pass
               for (auto y = abc_y0; y < abc_y1; y++) {
                 for (auto x = abc_x0; x < abc_x1; x++) {
                   glm::vec3 pos(x, y, z);
-                  glm::vec3 velo(a_coeff * sin(pos.z * c_pos) + B_PARAM * cos(pos.y * c_pos),
-                                 B_PARAM * sin(pos.x * c_pos) + C_PARAM * cos(pos.z * c_pos),
-                                 C_PARAM * sin(pos.y * c_pos) + a_coeff * cos(pos.x * c_pos));
+                  glm::vec3 velo(a_coeff * glm::sin(pos.z * c_pos) + B_PARAM * glm::cos(pos.y * c_pos),
+                                 B_PARAM * glm::sin(pos.x * c_pos) + C_PARAM * glm::cos(pos.z * c_pos),
+                                 C_PARAM * glm::sin(pos.y * c_pos) + a_coeff * glm::cos(pos.x * c_pos));
 
                   ptr[offset] = velo;
 
@@ -682,11 +683,16 @@ struct update_pass : texpress::render_pass
           texpress::Encoder::initialize_buffer(tex_encoded.data, settings, input);
           texpress::Encoder::populate_EncoderData(output, tex_encoded);
 
+          auto t0 = std::chrono::high_resolution_clock::now();
           if (encoder->compress(settings, input, output)) {
             spdlog::info("Compressed!");
             texpress::Encoder::populate_Texture(tex_encoded, output);
           }
-
+          auto t1 = std::chrono::high_resolution_clock::now();
+          auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+          auto seconds = std::chrono::duration_cast<std::chrono::seconds>(t1 - t0).count();
+          std::string time = std::to_string(milliseconds) + "\n" + std::to_string(seconds);
+          texpress::file_save("times.txt", time.data(), time.size(), texpress::FILE_TEXT);
           tex_out = &tex_encoded;
         }
 
