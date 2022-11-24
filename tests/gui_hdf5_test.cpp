@@ -1,6 +1,7 @@
 #include <catch2/catch_all.hpp>
 #include <texpress/api.hpp>
 #include <texpress/helpers/imguihelper.hpp>
+#include <texpress/helpers/vtkhelper.hpp>
 #include <texpress/utility/normalize.hpp>
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics.hpp>
@@ -12,6 +13,7 @@
 #include <future>
 #include <fp16.h>
 #include <chrono>
+#include <glm/gtx/compatibility.hpp>
 #define IMGUI_COLOR_HDFGROUP ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(148/255.f, 180/255.f, 159/255.f, 255/255.f))
 #define IMGUI_COLOR_HDFDATASET ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(206/255.f, 229/255.f, 208/255.f, 255/255.f))
 #define IMGUI_COLOR_HDFOTHER ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(252/255.f, 248/255.f, 232/255.f, 255/255.f))
@@ -92,72 +94,109 @@ double average_error(const texpress::Texture& tex_a, texpress::Texture& tex_b, t
 }
 
 template <typename T, int length>
-void angular_error(const texpress::Texture& source, const texpress::Texture& decoded, texpress::Texture& error_out) {
+void angular_error(const texpress::Texture& source, const texpress::Texture& decoded, texpress::Texture& error_avg) {
   if (source.dimensions != decoded.dimensions) { return; }
 
   // Populate error
-  error_out.data.clear();
-  error_out.data.resize(source.dimensions.x * source.dimensions.y * source.dimensions.z * source.dimensions.w * sizeof(float));
-  error_out.dimensions = source.dimensions;
-  error_out.channels = 1;
-  error_out.gl_format = gl::GLenum::GL_RED;
-  error_out.gl_internal = gl::GLenum::GL_R32F;
-  error_out.gl_type = gl::GLenum::GL_FLOAT;
-  
+  error_avg.data.clear();
+  error_avg.data.resize(source.dimensions.x * source.dimensions.y * source.dimensions.z * sizeof(float));
+  error_avg.dimensions = source.dimensions;
+  error_avg.dimensions.w = 1;
+  error_avg.channels = 1;
+  error_avg.gl_format = gl::GLenum::GL_RED;
+  error_avg.gl_internal = gl::GLenum::GL_R32F;
+  error_avg.gl_type = gl::GLenum::GL_FLOAT;
+
   const glm::vec<length, T>* src_ptr = (const glm::vec<length, T>*) source.data.data();
   const glm::vec<3, T>* dec_ptr = (const glm::vec<3, T>*) decoded.data.data();
-  float* err_ptr = (float*) error_out.data.data();
+  float* avg_ptr = (float*) error_avg.data.data();
 
-  //accumulator_set<double, features<tag::mean, tag::median> > acc;
+  double avg = 0.0;
+  double max = 0.0;
 
-  for (auto d = 0; d < source.dimensions.z * source.dimensions.w; d++) {
-    for (auto y = 0; y < source.dimensions.y; y++) {
-      for (auto x = 0; x < source.dimensions.x; x++) {
-        uint64_t offset = d * source.dimensions.y * source.dimensions.x + y * source.dimensions.x + x;
+  for (auto t = 0; t < source.dimensions.w; t++) {
+    double avg_register = 0.0;
+    double max_register = 0.0;
 
-        const auto& v_src = glm::vec3(src_ptr[offset]);
-        const auto& v_dec  = glm::vec3(dec_ptr[offset]);
-        err_ptr[offset] = glm::acos(glm::dot(glm::normalize(v_src), glm::normalize(v_dec)));
-        //acc(err_ptr[offset]);
+    for (auto z = 0; z < source.dimensions.z; z++) {
+      for (auto y = 0; y < source.dimensions.y; y++) {
+        for (auto x = 0; x < source.dimensions.x; x++) {
+          uint64_t offset = z * source.dimensions.y * source.dimensions.x + y * source.dimensions.x + x;
+
+          const auto& v_src = glm::vec3(src_ptr[offset]);
+          const auto& v_dec = glm::vec3(dec_ptr[offset]);
+
+          auto cross = glm::cross(v_src, v_dec);
+          // Sanity check cross product
+          if (glm::length(cross) > 0.01) {
+            double angle = std::atan2f(glm::length(cross), glm::dot(v_src, v_dec)) / source.dimensions.w;
+            avg_ptr[offset] += angle;
+            avg_register += angle;
+            max_register = std::fmax(angle, avg_register);
+          }
+          else {
+            // noop
+            // err_ptr[offset] += 0.0;
+          }
+        }
       }
     }
+
+    avg += (avg_register / (source.dimensions.x * source.dimensions.y * source.dimensions.z * source.dimensions.w));
+    max = std::fmax(max, max_register);
   }
 
-  //spdlog::info("Average angular error: {0}", mean(acc));
+  spdlog::info("Average angle error: {0}", avg);
+  spdlog::info("Maximum angle error: {0}", max);
 }
 
 template <typename T, int length>
-void distance_error(const texpress::Texture& source, const texpress::Texture& decoded, texpress::Texture& error_out) {
+void distance_error(const texpress::Texture& source, const texpress::Texture& decoded, texpress::Texture& error_avg) {
+  if (source.dimensions != decoded.dimensions) { return; }
+
   // Populate error
-  error_out.data.clear();
-  error_out.data.resize(source.dimensions.x * source.dimensions.y * source.dimensions.z * source.dimensions.w * sizeof(float));
-  error_out.dimensions = source.dimensions;
-  error_out.channels = 1;
-  error_out.gl_format = gl::GLenum::GL_RED;
-  error_out.gl_internal = gl::GLenum::GL_R32F;
-  error_out.gl_type = gl::GLenum::GL_FLOAT;
+  error_avg.data.clear();
+  error_avg.data.resize(source.dimensions.x * source.dimensions.y * source.dimensions.z * sizeof(float));
+  error_avg.dimensions = source.dimensions;
+  error_avg.dimensions.w = 1;
+  error_avg.channels = 1;
+  error_avg.gl_format = gl::GLenum::GL_RED;
+  error_avg.gl_internal = gl::GLenum::GL_R32F;
+  error_avg.gl_type = gl::GLenum::GL_FLOAT;
 
   const glm::vec<length, T>* src_ptr = (const glm::vec<length, T>*) source.data.data();
   const glm::vec<3, T>* dec_ptr = (const glm::vec<3, T>*) decoded.data.data();
-  float* err_ptr = (float*)error_out.data.data();
+  float* avg_ptr = (float*)error_avg.data.data();
 
   double avg = 0.0;
+  double max = 0.0;
 
-  for (auto d = 0; d < source.dimensions.z * source.dimensions.w; d++) {
-    for (auto y = 0; y < source.dimensions.y; y++) {
-      for (auto x = 0; x < source.dimensions.x; x++) {
-        uint64_t offset = d * source.dimensions.y * source.dimensions.x + y * source.dimensions.x + x;
+  for (auto t = 0; t < source.dimensions.w; t++) {
+    double avg_register = 0.0;
+    double max_register = 0.0;
 
-        const auto& v_src = glm::vec3(src_ptr[offset]);
-        const auto& v_dec = glm::vec3(dec_ptr[offset]);
-        err_ptr[offset] = glm::length(v_dec - v_src);
-        avg += err_ptr[offset];
+    for (auto z = 0; z < source.dimensions.z; z++) {
+      for (auto y = 0; y < source.dimensions.y; y++) {
+        for (auto x = 0; x < source.dimensions.x; x++) {
+          uint64_t offset = z * source.dimensions.y * source.dimensions.x + y * source.dimensions.x + x;
+
+          const auto& v_src = glm::vec3(src_ptr[offset]);
+          const auto& v_dec = glm::vec3(dec_ptr[offset]);
+
+          double distance = glm::distance(v_src, v_dec);
+          avg_ptr[offset] += distance / source.dimensions.w;
+          avg_register += distance;
+          max_register = std::fmax(distance, max_register);
+        }
       }
     }
+
+    avg += (avg_register / (source.dimensions.x * source.dimensions.y * source.dimensions.z * source.dimensions.w));
+    max = std::fmax(max, max_register);
   }
 
-  avg /= source.dimensions.w * source.dimensions.z * source.dimensions.y * source.dimensions.x;
   spdlog::info("Average distance error: {0}", avg);
+  spdlog::info("Maximum distance error: {0}", max);
 }
 
 /*
@@ -270,7 +309,7 @@ struct update_pass : texpress::render_pass
     , t_prev(0.0)
     , lag(0.0)
     , buf_path("")
-    , save_path ("")
+    , save_path("")
     , load_path("")
     , buf_x("/u")
     , buf_y("/v")
@@ -297,6 +336,10 @@ struct update_pass : texpress::render_pass
     , tex_encoded()
     , tex_decoded()
     , tex_error()
+    , tex_avg_angular()
+    , tex_max_angular ()
+    , tex_avg_distance()
+    , tex_max_distance()
     , tex_in(&tex_source)
     , tex_out(&tex_source)
     , depth_src(0)
@@ -310,7 +353,8 @@ struct update_pass : texpress::render_pass
       t_prev = clock.timeF64(texpress::WallclockType::WALLCLK_MS);
 
       //strcpy(buf_path, std::filesystem::current_path().string().c_str());
-      strcpy(buf_path, (std::filesystem::current_path().string() + "\\..\\files\\ctbl3d.nc").c_str());
+      //strcpy(buf_path, (std::filesystem::current_path().string() + "\\..\\files\\ctbl3d.nc").c_str());
+      strcpy(buf_path, "G:\\Thesis\\Data\\cl\\ctbl3d.nc");
     };
     on_update = [&] ( )
     {
@@ -782,26 +826,41 @@ struct update_pass : texpress::render_pass
           static bool array2d = false;
           static bool monolithic = true;
           static bool binary = false;
+          static bool vtk = false;
+
           ImGui::Checkbox("As 2DArray", &array2d); ImGui::SameLine(); 
           ImGui::Checkbox("As Single File", &monolithic);
           ImGui::Checkbox("As Binary File", &binary);
+          ImGui::Checkbox("As VTK File", &vtk);
 
-          if (ImGui::Button("Save as KTX")) {
+          if (ImGui::Button("Save##popup")) {
             switch (save_selected) {
             case 0:
-              if (!tex_source.data.empty()) {
-                if (binary) {
-                  texpress::file_save(save_path, (char*)tex_source.data.data(), tex_source.bytes());
-                }
-                else {
-                  texpress::save_ktx(tex_source, save_path, array2d, monolithic);
-                }
+              if (tex_source.data.empty()) { break; }
+
+              if (binary) {
+                texpress::file_save(save_path, (char*)tex_source.data.data(), tex_source.bytes());
+              }
+              else if (vtk) {
+                spdlog::error("No VTK for source data");
+              }
+              else {
+                texpress::save_ktx(tex_source, save_path, array2d, monolithic);
               }
               break;
             case 1:
-              if (!tex_normalized.data.empty()) {
+              if (tex_normalized.data.empty()) { break; }
+
+              if (binary) {
+                texpress::file_save(save_path, (char*)tex_normalized.data.data(), tex_normalized.bytes());
+              }
+              else if (vtk) {
+                spdlog::error("No VTK for normalized data");
+              }
+              else {
                 texpress::save_ktx(tex_normalized, save_path, array2d, monolithic);
               }
+
               if (!peaks.empty()) {
                 std::string peaks_path = std::string(save_path);
                 peaks_path = peaks_path.substr(0, peaks_path.find_last_of('.')) + ".peaks";
@@ -809,9 +868,21 @@ struct update_pass : texpress::render_pass
               }
               break;
             case 2:
-              if (!tex_encoded.data.empty()) {
+              if (tex_encoded.data.empty()) { break; }
+
+              //if (!tex_encoded.data.empty()) {
+              //  texpress::save_ktx(tex_encoded, save_path, array2d, monolithic);
+              //}
+              if (binary) {
+                texpress::file_save(save_path, (char*)tex_encoded.data.data(), tex_encoded.bytes());
+              }
+              else if (vtk) {
+                spdlog::error("No VTK for encoded data");
+              }
+              else {
                 texpress::save_ktx(tex_encoded, save_path, array2d, monolithic);
               }
+
               if (!peaks.empty()) {
                 std::string peaks_path = std::string(save_path);
                 peaks_path = peaks_path.substr(0, peaks_path.find_last_of('.')) + ".peaks";
@@ -819,19 +890,45 @@ struct update_pass : texpress::render_pass
               }
               break;
             case 3:
-              if (!tex_decoded.data.empty()) {
+              if (tex_decoded.data.empty()) { break; }
+
+              //if (!tex_decoded.data.empty()) {
+              //  texpress::save_ktx(tex_decoded, save_path, array2d, monolithic);
+              //}
+              if (binary) {
+                texpress::file_save(save_path, (char*)tex_decoded.data.data(), tex_decoded.bytes());
+              }
+              else if (vtk) {
+                spdlog::error("No VTK for decoded data");
+              }
+              else {
                 texpress::save_ktx(tex_decoded, save_path, array2d, monolithic);
               }
               break;
             case 4:
-              if (!peaks.empty()) {
+              if (peaks.empty()) { break; }
+              if (binary) {
                 std::string peaks_path = std::string(save_path);
                 peaks_path = peaks_path.substr(0, peaks_path.find_last_of('.')) + ".peaks";
                 texpress::file_save(peaks_path.c_str(), (char*)peaks.data(), peaks.size() * sizeof(float));
               }
+              else if (vtk) {
+                spdlog::error("No VTK for peaks data");
+              }
+              else {
+                spdlog::error("No KTX for peaks data");
+              }
               break;
             case 5:
-              if (!tex_error.data.empty()) {
+              if (tex_avg_distance.data.empty() && tex_max_distance.data.empty() && tex_avg_angular.data.empty() && tex_max_angular.data.empty()) { break; }
+
+              if (binary && !vtk) {
+                texpress::file_save(save_path, (char*)tex_avg_distance.data.data(), tex_avg_distance.bytes());
+              }
+              else if (vtk) {
+                texpress::save_vtk(save_path, "GridError", tex_avg_distance, tex_avg_angular);
+              }
+              else {
                 texpress::save_ktx(tex_error, save_path, array2d, monolithic);
               }
               break;
@@ -928,15 +1025,15 @@ struct update_pass : texpress::render_pass
 
         if (ImGui::Button("Angular Error")) {
           if (!tex_source.data.empty()) {
-            angular_error<float, 3> (tex_source, tex_decoded, tex_error);
-            tex_out = &tex_error;
+            angular_error<float, 3> (tex_source, tex_decoded, tex_avg_angular);
+            tex_out = &tex_avg_angular;
           }
         }
 
         if (ImGui::Button("Distance Error")) {
           if (!tex_source.data.empty()) {
-            distance_error<float, 3>(tex_source, tex_decoded, tex_error);
-            tex_out = &tex_error;
+            distance_error<float, 3>(tex_source, tex_decoded, tex_avg_distance);
+            tex_out = &tex_avg_distance;
           }
         }
 
@@ -1005,6 +1102,42 @@ struct update_pass : texpress::render_pass
           if (tex_out == &tex_error) { tex_out = nullptr; }
           tex_error.data.clear();
           tex_error.data.shrink_to_fit();
+        }
+
+        ImGui::Text("Avg Distance Error: "); ImGui::SameLine();
+        ImGui::Text((std::to_string(tex_avg_distance.bytes() / (1024 * 1024)) + "MB").c_str()); ImGui::SameLine();
+        if (ImGui::Button("Delete##error_avgdist")) {
+          if (tex_in == &tex_avg_distance) { tex_in = nullptr; }
+          if (tex_out == &tex_avg_distance) { tex_out = nullptr; }
+          tex_avg_distance.data.clear();
+          tex_avg_distance.data.shrink_to_fit();
+        }
+
+        ImGui::Text("Max Distance Error: "); ImGui::SameLine();
+        ImGui::Text((std::to_string(tex_max_distance.bytes() / (1024 * 1024)) + "MB").c_str()); ImGui::SameLine();
+        if (ImGui::Button("Delete##errormaxdist")) {
+          if (tex_in == &tex_max_distance) { tex_in = nullptr; }
+          if (tex_out == &tex_max_distance) { tex_out = nullptr; }
+          tex_max_distance.data.clear();
+          tex_max_distance.data.shrink_to_fit();
+        }
+
+        ImGui::Text("Avg Angular Error: "); ImGui::SameLine();
+        ImGui::Text((std::to_string(tex_avg_angular.bytes() / (1024 * 1024)) + "MB").c_str()); ImGui::SameLine();
+        if (ImGui::Button("Delete##erroravgangular")) {
+          if (tex_in == &tex_avg_angular) { tex_in = nullptr; }
+          if (tex_out == &tex_avg_angular) { tex_out = nullptr; }
+          tex_avg_angular.data.clear();
+          tex_avg_angular.data.shrink_to_fit();
+        }
+
+        ImGui::Text("Max Angular Error: "); ImGui::SameLine();
+        ImGui::Text((std::to_string(tex_max_angular.bytes() / (1024 * 1024)) + "MB").c_str()); ImGui::SameLine();
+        if (ImGui::Button("Delete##errormaxangular")) {
+          if (tex_in == &tex_max_angular) { tex_in = nullptr; }
+          if (tex_out == &tex_max_angular) { tex_out = nullptr; }
+          tex_max_angular.data.clear();
+          tex_max_angular.data.shrink_to_fit();
         }
 
         
@@ -1157,6 +1290,10 @@ struct update_pass : texpress::render_pass
   texpress::Texture tex_encoded;
   texpress::Texture tex_decoded;
   texpress::Texture tex_error;
+  texpress::Texture tex_avg_angular;
+  texpress::Texture tex_max_angular;
+  texpress::Texture tex_avg_distance;
+  texpress::Texture tex_max_distance;
   texpress::Texture* tex_in;
   texpress::Texture* tex_out;
 
