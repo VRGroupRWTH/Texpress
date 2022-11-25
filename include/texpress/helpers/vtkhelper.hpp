@@ -1,7 +1,7 @@
 #pragma once
 #include <fstream>
 #include <texpress/types/texture.hpp>
-
+#include <array>
 
 // Thanks to https://stackoverflow.com/questions/105252
 template <typename T>
@@ -62,19 +62,44 @@ bool save_vtk(std::string path, const vtk_points& points, const std::vector<vtk_
 	outVTK << "POINT_DATA " << numPoints << std::endl;
 
 	for (const auto& err_ds : err_datasets) {
-		outVTK << "SCALARS " << err_ds.data_title << " " << err_ds.data_type << " " << err_ds.data_components << std::endl;
-		outVTK << "LOOKUP_TABLE default" << std::endl;
+		bool vectors = false;
+		if (err_ds.data_components == 3) {
+			outVTK << "VECTORS " << err_ds.data_title << " " << err_ds.data_type << std::endl;
+			vectors = true;
+		}
+		else {
+			outVTK << "SCALARS " << err_ds.data_title << " " << err_ds.data_type << " " << err_ds.data_components << std::endl;
+			outVTK << "LOOKUP_TABLE default" << std::endl;
+		}
 
 		for (auto point_idx = 0; point_idx < numPoints; point_idx++) {
-			auto error = err_ds.data[point_idx];
+			for (auto cmp = 0; cmp < err_ds.data_components; cmp++) {
+				auto error = err_ds.data[point_idx * err_ds.data_components + cmp];
 
-			if (binary) {
-				SwapEnd(error);
+				if (binary) {
+					SwapEnd(error);
 
-				outVTK.write(reinterpret_cast<char*>(&error), sizeof(Terr));
-			}
-			else {
-				outVTK << error << std::endl;
+					outVTK.write(reinterpret_cast<char*>(&error), sizeof(Terr));
+				}
+				else {
+					// Write error
+					outVTK << error;
+					
+					// If vector, check whether to write space or endline
+					if (vectors) {
+						if (cmp == 2) {
+							outVTK << std::endl;
+						}
+						else {
+							outVTK << " ";
+						}
+					}
+					// Else (scalar) always write endline
+					else {
+						outVTK << std::endl;
+					}
+					
+				}
 			}
 		}
 	}
@@ -141,7 +166,7 @@ namespace texpress {
 		return 1;
 	}
 
-	bool save_vtk(const char* path, const char* vtk_title, const Texture& avg_dst, const Texture& avg_angular, int sx = 1, int sy = 1, int sz = 1, bool binary = true) {
+	bool save_vtk(const char* path, const char* vtk_title, const Texture& avg_dst, const Texture& avg_angular, const Texture& channel_err, int sx = 1, int sy = 1, int sz = 1, bool binary = true) {
 		vtk_points points;
 		if (!avg_dst.data.empty()) {
 			points.nx = avg_dst.dimensions.x;
@@ -167,10 +192,11 @@ namespace texpress {
 			return 0;
 		}
 
-		outCSV << "Average Distance,Max Distance,Average Angular Error,Max Angular Error" << std::endl;
-		std::string data_row = "";
-
 		std::vector<vtk_dataset<float>> errs;
+		outCSV << "Distance RMS,Max Distance,Angular RMS,Max Angular,X RMS,Y RMS,Z RMS,Max X,Max Y,Max Z" << std::endl;
+		std::array<std::string, 1> data_rows;
+		data_rows[0] = "";
+		
 		if (!avg_dst.data.empty()) {
 			errs.push_back({});
 			errs.back().data = (float*)avg_dst.data.data();
@@ -180,13 +206,19 @@ namespace texpress {
 
 			double avg = 0.0;
 			double max = 0.0;
-			long int counter = 0;
+			
 			for (auto idx = 0; idx < avg_dst.dimensions.x * avg_dst.dimensions.y * avg_dst.dimensions.z; idx++) {
-				avg += errs.back().data[idx] / (avg_dst.dimensions.x * avg_dst.dimensions.y * avg_dst.dimensions.z);
-				max = std::fmax(errs.back().data[idx], max);
+				auto val = errs.back().data[idx];
+				auto mse = (val * val) / (avg_dst.dimensions.x * avg_dst.dimensions.y * avg_dst.dimensions.z);
+				avg += mse;
+				max = std::fmax(val, max);
 			}
 
-			data_row += std::to_string(avg) + "," + std::to_string(max) + ",";
+			avg = std::sqrt(avg);
+			data_rows[0] += std::to_string(avg) + "," + std::to_string(max) + ",";
+		}
+		else {
+			data_rows[0] += ",,";
 		}
 
 		if (!avg_angular.data.empty()) {
@@ -200,16 +232,67 @@ namespace texpress {
 			double max = 0.0;
 
 			for (auto idx = 0; idx < avg_angular.dimensions.x * avg_angular.dimensions.y * avg_angular.dimensions.z; idx++) {
-				avg += errs.back().data[idx] / (avg_angular.dimensions.x * avg_angular.dimensions.y * avg_angular.dimensions.z);
-				max = std::fmax(errs.back().data[idx], max);
+				auto val = errs.back().data[idx];
+				auto mse = (val * val) / (avg_dst.dimensions.x * avg_dst.dimensions.y * avg_dst.dimensions.z);
+
+				avg += mse;
+				max = std::fmax(val, max);
 			}
 
-			data_row += std::to_string(avg) + "," + std::to_string(max) + ",";
+			avg = std::sqrt(avg);
+			data_rows[0] += std::to_string(avg) + "," + std::to_string(max) + ",";
+		}
+		else {
+			data_rows[0] += ",,";
+		}
+
+		if (!channel_err.data.empty()) {
+			errs.push_back({});
+			errs.back().data = (float*)channel_err.data.data();
+			errs.back().data_components = 3;
+			errs.back().data_title = "Component_Distance";
+			errs.back().data_type = "float";
+
+			double avg_x = 0.0;
+			double avg_y = 0.0;
+			double avg_z = 0.0;
+			double max_x = 0.0;
+			double max_y = 0.0;
+			double max_z = 0.0;
+
+			for (auto pos = 0; pos < channel_err.dimensions.x * channel_err.dimensions.y * channel_err.dimensions.z; pos++) {
+				auto idx = pos * channel_err.channels;
+				auto val_x = errs.back().data[idx + 0];
+				auto val_y = errs.back().data[idx + 1];
+				auto val_z = errs.back().data[idx + 2];
+
+				auto mse_x = (val_x * val_x) / (avg_dst.dimensions.x * avg_dst.dimensions.y * avg_dst.dimensions.z);
+				auto mse_y = (val_y * val_y) / (avg_dst.dimensions.x * avg_dst.dimensions.y * avg_dst.dimensions.z);
+				auto mse_z = (val_z * val_z) / (avg_dst.dimensions.x * avg_dst.dimensions.y * avg_dst.dimensions.z);
+
+				avg_x += mse_x;
+				avg_y += mse_y;
+				avg_z += mse_z;
+
+				max_x = std::fmax(val_x, max_x);
+				max_y = std::fmax(val_y, max_y);
+				max_z = std::fmax(val_z, max_z);
+			}
+			
+			avg_x = std::sqrt(avg_x);
+			avg_y = std::sqrt(avg_y);
+			avg_z = std::sqrt(avg_z);
+
+			data_rows[0] += std::to_string(avg_x) + "," + std::to_string(avg_y) + "," + std::to_string(avg_z) + ",";
+			data_rows[0] += std::to_string(max_x) + "," + std::to_string(max_y) + "," + std::to_string(max_z) + ",";
+		}
+		else {
+			data_rows[0] += ",,,,,,";
 		}
 
 		// Remove last comma
-		data_row.resize(data_row.size() - 1);
-		outCSV << data_row << std::endl;
+		data_rows[0].resize(data_rows[0].size() - 1);
+		outCSV << data_rows[0] << std::endl;
 
 		outCSV.close();
 

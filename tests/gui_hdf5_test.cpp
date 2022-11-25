@@ -151,7 +151,7 @@ void angular_error(const texpress::Texture& source, const texpress::Texture& dec
 }
 
 template <typename T, int length>
-void distance_error(const texpress::Texture& source, const texpress::Texture& decoded, texpress::Texture& error_avg) {
+void distance_error(const texpress::Texture& source, const texpress::Texture& decoded, texpress::Texture& error_avg, texpress::Texture& error_component) {
   if (source.dimensions != decoded.dimensions) { return; }
 
   // Populate error
@@ -164,16 +164,40 @@ void distance_error(const texpress::Texture& source, const texpress::Texture& de
   error_avg.gl_internal = gl::GLenum::GL_R32F;
   error_avg.gl_type = gl::GLenum::GL_FLOAT;
 
+  error_component.data.clear();
+  error_component.data.resize(source.dimensions.x * source.dimensions.y * source.dimensions.z * sizeof(float) * source.channels);
+  error_component.dimensions = source.dimensions;
+  error_component.dimensions.w = 1;
+  error_component.channels = source.channels;
+  error_component.gl_format = texpress::gl_format(source.channels);
+  error_component.gl_internal = texpress::gl_internal(source.channels, 32, true);
+  error_component.gl_type = texpress::gl_type(error_component.gl_internal);
+
   const glm::vec<length, T>* src_ptr = (const glm::vec<length, T>*) source.data.data();
   const glm::vec<3, T>* dec_ptr = (const glm::vec<3, T>*) decoded.data.data();
   float* avg_ptr = (float*)error_avg.data.data();
+  glm::vec3* cmp_ptr = (glm::vec3*)error_component.data.data();
 
   double avg = 0.0;
   double max = 0.0;
 
+  double avg_x = 0.0;
+  double avg_y = 0.0;
+  double avg_z = 0.0;
+  double max_x = 0.0;
+  double max_y = 0.0;
+  double max_z = 0.0;
+
   for (auto t = 0; t < source.dimensions.w; t++) {
     double avg_register = 0.0;
     double max_register = 0.0;
+
+    double avg_x_register = 0.0;
+    double avg_y_register = 0.0;
+    double avg_z_register = 0.0;
+    double max_x_register = 0.0;
+    double max_y_register = 0.0;
+    double max_z_register = 0.0;
 
     for (auto z = 0; z < source.dimensions.z; z++) {
       for (auto y = 0; y < source.dimensions.y; y++) {
@@ -184,19 +208,52 @@ void distance_error(const texpress::Texture& source, const texpress::Texture& de
           const auto& v_dec = glm::vec3(dec_ptr[offset]);
 
           double distance = glm::distance(v_src, v_dec);
+          double dst_x = std::abs(v_src.x - v_dec.x);
+          double dst_y = std::abs(v_src.y - v_dec.y);
+          double dst_z = std::abs(v_src.z - v_dec.z);
+
           avg_ptr[offset] += distance / source.dimensions.w;
+          cmp_ptr[offset].x += dst_x / source.dimensions.w;
+          cmp_ptr[offset].y += dst_y / source.dimensions.w;
+          cmp_ptr[offset].z += dst_z / source.dimensions.w;
+
           avg_register += distance;
           max_register = std::fmax(distance, max_register);
+
+          avg_x_register += dst_x;
+          avg_y_register += dst_y;
+          avg_z_register += dst_z;
+          max_x_register = std::fmax(dst_x, max_x_register);
+          max_y_register = std::fmax(dst_y, max_y_register);
+          max_z_register = std::fmax(dst_z, max_z_register);
         }
       }
     }
 
     avg += (avg_register / (source.dimensions.x * source.dimensions.y * source.dimensions.z * source.dimensions.w));
+
+    avg_x += (avg_x_register / (source.dimensions.x * source.dimensions.y * source.dimensions.z * source.dimensions.w));
+    avg_y += (avg_y_register / (source.dimensions.x * source.dimensions.y * source.dimensions.z * source.dimensions.w));
+    avg_z += (avg_z_register / (source.dimensions.x * source.dimensions.y * source.dimensions.z * source.dimensions.w));
+
     max = std::fmax(max, max_register);
+
+    max_x = std::fmax(max_x, max_x_register);
+    max_y = std::fmax(max_y, max_y_register);
+    max_z = std::fmax(max_z, max_z_register);
   }
 
   spdlog::info("Average distance error: {0}", avg);
   spdlog::info("Maximum distance error: {0}", max);
+
+  spdlog::info("Average x error: {0}", avg_x);
+  spdlog::info("Average y error: {0}", avg_y);
+  spdlog::info("Average z error: {0}", avg_z);
+
+  spdlog::info("Max x error: {0}", max_x);
+  spdlog::info("Max y error: {0}", max_y);
+  spdlog::info("Max z error: {0}", max_z);
+
 }
 
 /*
@@ -340,6 +397,7 @@ struct update_pass : texpress::render_pass
     , tex_max_angular ()
     , tex_avg_distance()
     , tex_max_distance()
+    , tex_component_err()
     , tex_in(&tex_source)
     , tex_out(&tex_source)
     , depth_src(0)
@@ -926,7 +984,7 @@ struct update_pass : texpress::render_pass
                 texpress::file_save(save_path, (char*)tex_avg_distance.data.data(), tex_avg_distance.bytes());
               }
               else if (vtk) {
-                texpress::save_vtk(save_path, "GridError", tex_avg_distance, tex_avg_angular);
+                texpress::save_vtk(save_path, "GridError", tex_avg_distance, tex_avg_angular, tex_component_err);
               }
               else {
                 texpress::save_ktx(tex_error, save_path, array2d, monolithic);
@@ -1032,7 +1090,7 @@ struct update_pass : texpress::render_pass
 
         if (ImGui::Button("Distance Error")) {
           if (!tex_source.data.empty()) {
-            distance_error<float, 3>(tex_source, tex_decoded, tex_avg_distance);
+            distance_error<float, 3>(tex_source, tex_decoded, tex_avg_distance, tex_component_err);
             tex_out = &tex_avg_distance;
           }
         }
@@ -1294,6 +1352,7 @@ struct update_pass : texpress::render_pass
   texpress::Texture tex_max_angular;
   texpress::Texture tex_avg_distance;
   texpress::Texture tex_max_distance;
+  texpress::Texture tex_component_err;
   texpress::Texture* tex_in;
   texpress::Texture* tex_out;
 
