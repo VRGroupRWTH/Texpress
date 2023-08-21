@@ -120,16 +120,16 @@ if(NOT BUILD_SHARED_LIBS)
 endif()
 
 # Import dependent dlls of NVTT
+#add_custom_command (TARGET ${PROJECT_NAME} POST_BUILD
+#  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+#  # Copy NVTT dll
+#  $<TARGET_FILE:NVTT::NVTT> $<TARGET_FILE_DIR:${PROJECT_NAME}>
+#)
+
 add_custom_command (TARGET ${PROJECT_NAME} POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
   # Copy NVTT dll
   $<TARGET_FILE:NVTT::NVTT> $<TARGET_FILE_DIR:${PROJECT_NAME}>
-)
-
-add_custom_command (TARGET ${PROJECT_NAME} POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-  # Copy (dependent) CUDA dll
-  $<TARGET_PROPERTY:NVTT::NVTT,IMPORTED_CUDA> $<TARGET_FILE_DIR:${PROJECT_NAME}>
 )
 
 ##################################################    Postbuild   ##################################################

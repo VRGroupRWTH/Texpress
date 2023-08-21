@@ -89,8 +89,8 @@ namespace texpress {
         *progress_output = percentage;
       }
       else {
-        printf("\r%d%%", percentage);
-        fflush(stdout);
+        //printf("\r%d%%", percentage);
+        //fflush(stdout);
       }
     }
     return true;
@@ -206,7 +206,7 @@ namespace texpress {
       output.gl_internal = (uint32_t) gl::GLenum::GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT;
       break;
     default:
-      spdlog::error("Encoding {0} is unsupported, use BC6H.", settings.encoding);
+      //spdlog::error("Encoding {0} is unsupported, use BC6H.", settings.encoding);
 
       busy.store(false);
       return false;
