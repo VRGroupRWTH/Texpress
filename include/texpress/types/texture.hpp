@@ -549,7 +549,7 @@ namespace texpress
     inline gl::GLenum gl_format(int channels) {
         switch (channels) {
         case 1:
-            return gl::GLenum::GL_R;
+            return gl::GLenum::GL_RED;
         case 2:
             return gl::GLenum::GL_RG;
         case 3:

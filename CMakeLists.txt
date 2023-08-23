@@ -31,13 +31,11 @@ file(GLOB_RECURSE PROJECT_HEADERS include/*.h include/*.hpp)
 file(GLOB_RECURSE PROJECT_SOURCES source/*.c source/*.cpp)
 file(GLOB_RECURSE PROJECT_CMAKE_UTILS cmake/*.cmake)
 file(GLOB_RECURSE PROJECT_MISC *.md *.txt)
-set (PROJECT_EXPORT_HPP include/${PROJECT_NAME}/export.hpp)
 set (PROJECT_FILES 
   ${PROJECT_HEADERS} 
   ${PROJECT_SOURCES} 
   ${PROJECT_CMAKE_UTILS} 
-  ${PROJECT_MISC} 
-  ${PROJECT_EXPORT_HPP})
+  ${PROJECT_MISC})
 
 include            (assign_source_group)
 assign_source_group(${PROJECT_FILES})

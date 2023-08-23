@@ -12,6 +12,7 @@
 #include <fp16.h>
 #include <chrono>
 #include <glm/gtx/compatibility.hpp>
+#include <texpress/utility/stringtools.hpp>
 #define IMGUI_COLOR_HDFGROUP ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(148/255.f, 180/255.f, 159/255.f, 255/255.f))
 #define IMGUI_COLOR_HDFDATASET ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(206/255.f, 229/255.f, 208/255.f, 255/255.f))
 #define IMGUI_COLOR_HDFOTHER ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(252/255.f, 248/255.f, 232/255.f, 255/255.f))
@@ -20,277 +21,83 @@
 
 using namespace boost::accumulators;
 
-double average_error(const texpress::Texture& tex_a, texpress::Texture& tex_b, texpress::Encoder* enc) {
-    glm::dvec4 max_err(0.0);
-    glm::dvec4 min_err(INFINITY);
-    glm::dvec4 error(0.0);
-    uint64_t off_a = 0;
-    uint64_t off_b = 0;
-    uint64_t n = 0;
 
-    texpress::Texture* slice{};
+void component_error(const texpress::Texture& tex_a, const texpress::Texture& tex_b, texpress::Texture& tex_error) {
+    tex_error.data.clear();
+    tex_error.dimensions = tex_a.dimensions;
+    tex_error.channels = tex_a.channels;
+    tex_error.gl_internal = texpress::gl_internal(tex_error.channels, 32, true);
+    tex_error.gl_format = texpress::gl_format(tex_error.channels);
+    tex_error.gl_type = gl::GLenum::GL_FLOAT;
+    tex_error.data.resize(tex_a.bytes());
 
-    if (tex_b.compressed()) {
-        slice = new texpress::Texture();
-    }
-    else {
-        slice = &tex_b;
-    }
+    glm::dvec4 avg_error(0.0);
+
+    const float* a_ptr = (const float*)tex_a.data.data();
+    const float* b_ptr = (const float*)tex_b.data.data();
+    float* err_ptr = (float*)tex_error.data.data();
+
+    uint64_t vectors_2d = (uint64_t)tex_a.dimensions.x * (uint64_t)tex_a.dimensions.y;
+    uint64_t scalars_2d = vectors_2d * (uint64_t)tex_a.channels;
+
+    uint64_t n = vectors_2d * (uint64_t)tex_a.dimensions.z * (uint64_t)tex_a.dimensions.w;
 
     for (uint64_t d = 0; d < tex_a.dimensions.z * tex_a.dimensions.w; d++) {
-        if (tex_b.compressed()) {
-            texpress::EncoderData input{};
-            texpress::Encoder::populate_EncoderData(input, tex_b);
-
-            texpress::EncoderData output{};
-            output.data_bytes = texpress::Encoder::decoded_size(input) / (tex_a.dimensions.z * tex_a.dimensions.w);
-            slice->data.resize(output.data_bytes);
-            output.data_ptr = slice->data.data();
-
-            enc->decompress(input, output, d);
-            texpress::Encoder::populate_Texture(*slice, output);
-        }
-
         for (uint64_t p = 0; p < tex_a.dimensions.x * tex_a.dimensions.y; p++) {
             glm::vec4 vec_a(0.0f, 0.0f, 0.0f, 1.0f);
             glm::vec4 vec_b(vec_a);
 
-            for (int c = 0; c < tex_a.channels; c++) {
-                vec_a[c] = tex_a.data[off_a + p * tex_a.channels + c];
-            }
+            for (uint64_t c = 0; c < tex_a.channels; c++) {
+                vec_a[c] = a_ptr[d * scalars_2d + p * (uint64_t)tex_a.channels + c];
+                vec_b[c] = b_ptr[d * scalars_2d + p * (uint64_t)tex_b.channels + c];
 
-            for (int c = 0; c < slice->channels; c++) {
-                vec_b[c] = slice->data[p * slice->channels + c];
-            }
+                err_ptr[d * scalars_2d + p * (uint64_t)tex_a.channels + c] = glm::abs(vec_a[c] - vec_b[c]);
 
-            // Avg Error
-            auto diff = glm::abs(vec_a - vec_b);
-            for (int i = 0; i < 4; i++) {
-                max_err[i] = (diff[i] > max_err[i]) ? diff[i] : max_err[i];
-                min_err[i] = (diff[i] < min_err[i]) ? diff[i] : min_err[i];
-            }
-
-            error += diff;
-            n++;
-        }
-
-        off_a += (uint64_t)tex_a.bytes() / (tex_a.dimensions.z * tex_a.dimensions.w * sizeof(float));
-    }
-
-    error /= (double)n;
-
-    spdlog::info("Source vs Compressed data");
-    spdlog::info("Average: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", error.x, error.y, error.z, error.w);
-    spdlog::info("Maximum: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", max_err.x, max_err.y, max_err.z, max_err.w);
-    spdlog::info("Minimum: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", min_err.x, min_err.y, min_err.z, min_err.w);
-
-    if (tex_b.compressed()) {
-        delete slice;
-    }
-
-    return glm::length(error) / 4.0;
-}
-
-template <typename T, int length>
-void distance_error(const texpress::Texture& source, const texpress::Texture& decoded, texpress::Texture& error_avg, texpress::Texture& error_component) {
-    if (source.dimensions != decoded.dimensions) { return; }
-
-    // Populate error
-    error_avg.data.clear();
-    error_avg.data.resize(source.dimensions.x * source.dimensions.y * source.dimensions.z * sizeof(float));
-    error_avg.dimensions = source.dimensions;
-    error_avg.dimensions.w = 1;
-    error_avg.channels = 1;
-    error_avg.gl_format = gl::GLenum::GL_RED;
-    error_avg.gl_internal = gl::GLenum::GL_R32F;
-    error_avg.gl_type = gl::GLenum::GL_FLOAT;
-
-    error_component.data.clear();
-    error_component.data.resize(source.dimensions.x * source.dimensions.y * source.dimensions.z * sizeof(float) * source.channels);
-    error_component.dimensions = source.dimensions;
-    error_component.dimensions.w = 1;
-    error_component.channels = source.channels;
-    error_component.gl_format = texpress::gl_format(source.channels);
-    error_component.gl_internal = texpress::gl_internal(source.channels, 32, true);
-    error_component.gl_type = texpress::gl_type(error_component.gl_internal);
-
-    const glm::vec<length, T>* src_ptr = (const glm::vec<length, T>*) source.data.data();
-    const glm::vec<3, T>* dec_ptr = (const glm::vec<3, T>*) decoded.data.data();
-    float* avg_ptr = (float*)error_avg.data.data();
-    glm::vec3* cmp_ptr = (glm::vec3*)error_component.data.data();
-
-    double avg = 0.0;
-    double max = 0.0;
-
-    double avg_x = 0.0;
-    double avg_y = 0.0;
-    double avg_z = 0.0;
-    double max_x = 0.0;
-    double max_y = 0.0;
-    double max_z = 0.0;
-
-    for (auto t = 0; t < source.dimensions.w; t++) {
-        double avg_register = 0.0;
-        double max_register = 0.0;
-
-        double avg_x_register = 0.0;
-        double avg_y_register = 0.0;
-        double avg_z_register = 0.0;
-        double max_x_register = 0.0;
-        double max_y_register = 0.0;
-        double max_z_register = 0.0;
-
-        for (auto z = 0; z < source.dimensions.z; z++) {
-            for (auto y = 0; y < source.dimensions.y; y++) {
-                for (auto x = 0; x < source.dimensions.x; x++) {
-                    uint64_t offset = z * source.dimensions.y * source.dimensions.x + y * source.dimensions.x + x;
-
-                    const auto& v_src = glm::vec3(src_ptr[offset]);
-                    const auto& v_dec = glm::vec3(dec_ptr[offset]);
-
-                    double distance = glm::distance(v_src, v_dec);
-                    double dst_x = std::abs(v_src.x - v_dec.x);
-                    double dst_y = std::abs(v_src.y - v_dec.y);
-                    double dst_z = std::abs(v_src.z - v_dec.z);
-
-                    avg_ptr[offset] += distance / source.dimensions.w;
-                    cmp_ptr[offset].x += dst_x / source.dimensions.w;
-                    cmp_ptr[offset].y += dst_y / source.dimensions.w;
-                    cmp_ptr[offset].z += dst_z / source.dimensions.w;
-
-                    avg_register += distance;
-                    max_register = std::fmax(distance, max_register);
-
-                    avg_x_register += dst_x;
-                    avg_y_register += dst_y;
-                    avg_z_register += dst_z;
-                    max_x_register = std::fmax(dst_x, max_x_register);
-                    max_y_register = std::fmax(dst_y, max_y_register);
-                    max_z_register = std::fmax(dst_z, max_z_register);
-                }
+                avg_error[c] += glm::abs(vec_a[c] - vec_b[c]) / (double)n;
             }
         }
-
-        avg += (avg_register / (source.dimensions.x * source.dimensions.y * source.dimensions.z * source.dimensions.w));
-
-        avg_x += (avg_x_register / (source.dimensions.x * source.dimensions.y * source.dimensions.z * source.dimensions.w));
-        avg_y += (avg_y_register / (source.dimensions.x * source.dimensions.y * source.dimensions.z * source.dimensions.w));
-        avg_z += (avg_z_register / (source.dimensions.x * source.dimensions.y * source.dimensions.z * source.dimensions.w));
-
-        max = std::fmax(max, max_register);
-
-        max_x = std::fmax(max_x, max_x_register);
-        max_y = std::fmax(max_y, max_y_register);
-        max_z = std::fmax(max_z, max_z_register);
     }
 
-    spdlog::info("Average distance error: {0}", avg);
-    spdlog::info("Maximum distance error: {0}", max);
-
-    spdlog::info("Average x error: {0}", avg_x);
-    spdlog::info("Average y error: {0}", avg_y);
-    spdlog::info("Average z error: {0}", avg_z);
-
-    spdlog::info("Max x error: {0}", max_x);
-    spdlog::info("Max y error: {0}", max_y);
-    spdlog::info("Max z error: {0}", max_z);
-
+    spdlog::info("Average Component Error: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", avg_error.x, avg_error.y, avg_error.z, avg_error.w);
 }
 
-/*
-double average_error(texpress::Texture<float> tex_a, texpress::Texture<uint16_t> tex_b, texpress::Encoder* enc) {
-  glm::dvec4 max_err(0.0);
-  glm::dvec4 min_err(INFINITY);
-  glm::dvec4 error(0.0);
-  uint64_t off_a = 0;
-  uint64_t off_b = 0;
-  uint64_t n = 0;
+void distance_error(const texpress::Texture& tex_a, const texpress::Texture& tex_b, texpress::Texture& tex_error) {
+    tex_error.data.clear();
+    tex_error.dimensions = tex_a.dimensions;
+    tex_error.channels = 1;
+    tex_error.gl_internal = texpress::gl_internal(tex_error.channels, 32, true);
+    tex_error.gl_format = texpress::gl_format(tex_error.channels);
+    tex_error.gl_type = gl::GLenum::GL_FLOAT;
+    tex_error.data.resize(tex_a.bytes() / (uint64_t)tex_a.channels);
 
-  for (uint64_t d = 0; d < tex_a.dimensions.z * tex_a.dimensions.w; d++) {
-    for (uint64_t p = 0; p < tex_a.dimensions.x * tex_a.dimensions.y; p++) {
-      glm::vec4 vec_a(0.0f, 0.0f, 0.0f, 1.0f);
-      glm::vec4 vec_b(vec_a);
+    double avg_error(0.0);
 
-      for (int c = 0; c < tex_a.channels; c++) {
-        vec_a[c] = tex_a.data[off_a + p * tex_a.channels + c];
-      }
+    const float* a_ptr = (const float*)tex_a.data.data();
+    const float* b_ptr = (const float*)tex_b.data.data();
+    float* err_ptr = (float*)tex_error.data.data();
 
-      for (int c = 0; c < tex_b.channels; c++) {
-        vec_b[c] = fp16_ieee_to_fp32_value(tex_b.data[off_b + p * tex_b.channels + c]);
-      }
+    uint64_t vectors_2d = (uint64_t)tex_a.dimensions.x * (uint64_t)tex_a.dimensions.y;
+    uint64_t scalars_2d = vectors_2d * (uint64_t)tex_a.channels;
 
-      // Avg Error
-      auto diff = glm::abs(vec_a - vec_b);
-      for (int i = 0; i < 4; i++) {
-        max_err[i] = (diff[i] > max_err[i]) ? diff[i] : max_err[i];
-        min_err[i] = (diff[i] < min_err[i]) ? diff[i] : min_err[i];
-      }
+    uint64_t n = vectors_2d * (uint64_t)tex_a.dimensions.z * (uint64_t)tex_a.dimensions.w;
 
-      error += diff;
-      n++;
+    for (uint64_t d = 0; d < tex_a.dimensions.z * tex_a.dimensions.w; d++) {
+        for (uint64_t p = 0; p < tex_a.dimensions.x * tex_a.dimensions.y; p++) {
+            glm::vec4 vec_a(0.0f, 0.0f, 0.0f, 1.0f);
+            glm::vec4 vec_b(vec_a);
+
+            for (uint64_t c = 0; c < tex_a.channels; c++) {
+                vec_a[c] = a_ptr[d * scalars_2d + p * (uint64_t)tex_a.channels + c];
+                vec_b[c] = b_ptr[d * scalars_2d + p * (uint64_t)tex_b.channels + c];
+            }
+
+            err_ptr[d * vectors_2d + p] = glm::distance(vec_a, vec_b);
+            avg_error += glm::distance(vec_a, vec_b) / (double)n;
+        }
     }
 
-    off_a += (uint64_t)tex_a.bytes() / (tex_a.dimensions.z * tex_a.dimensions.w * sizeof(float));
-    off_b += (uint64_t)tex_b.bytes() / (tex_b.dimensions.z * tex_b.dimensions.w * sizeof(uint16_t));
-  }
-
-  error /= (double)n;
-
-  spdlog::info("Source vs Compressed data");
-  spdlog::info("Average: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", error.x, error.y, error.z, error.w);
-  spdlog::info("Maximum: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", max_err.x, max_err.y, max_err.z, max_err.w);
-  spdlog::info("Minimum: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", min_err.x, min_err.y, min_err.z, min_err.w);
-
-  return glm::length(error) / 4.0;
+    spdlog::info("Average Distance Error: {0:.4f}", avg_error);
 }
-
-
-double average_error(texpress::Texture<float> tex_a, texpress::Texture<float> tex_b, texpress::Encoder* enc) {
-  glm::dvec4 max_err(0.0);
-  glm::dvec4 min_err(INFINITY);
-  glm::dvec4 error(0.0);
-  uint64_t off_a = 0;
-  uint64_t off_b = 0;
-  uint64_t n = 0;
-
-  for (uint64_t d = 0; d < tex_a.dimensions.z * tex_a.dimensions.w; d++) {
-    for (uint64_t p = 0; p < tex_a.dimensions.x * tex_a.dimensions.y; p++) {
-      glm::vec4 vec_a(0.0f, 0.0f, 0.0f, 1.0f);
-      glm::vec4 vec_b(vec_a);
-
-      for (int c = 0; c < tex_a.channels; c++) {
-        vec_a[c] = tex_a.data[off_a + p * tex_a.channels + c];
-      }
-
-      for (int c = 0; c < tex_b.channels; c++) {
-        vec_b[c] = tex_b.data[off_b + p * tex_b.channels + c];
-      }
-
-      // Avg Error
-      auto diff = glm::abs(vec_a - vec_b);
-      for (int i = 0; i < 4; i++) {
-        max_err[i] = (diff[i] > max_err[i]) ? diff[i] : max_err[i];
-        min_err[i] = (diff[i] < min_err[i]) ? diff[i] : min_err[i];
-      }
-
-      error += diff;
-      n++;
-    }
-
-    off_a += (uint64_t)tex_a.bytes() / (tex_a.dimensions.z * tex_a.dimensions.w * sizeof(float));
-    off_b += (uint64_t)tex_b.bytes() / (tex_b.dimensions.z * tex_b.dimensions.w * sizeof(float));
-  }
-
-  error /= (double)n;
-
-  spdlog::info("Source vs Compressed data");
-  spdlog::info("Average: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", error.x, error.y, error.z, error.w);
-  spdlog::info("Maximum: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", max_err.x, max_err.y, max_err.z, max_err.w);
-  spdlog::info("Minimum: ({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", min_err.x, min_err.y, min_err.z, min_err.w);
-
-  return glm::length(error) / 4.0;
-}
-*/
 
 void update(double dt) {
     // noop
@@ -334,9 +141,6 @@ struct update_pass : texpress::render_pass
         , tex_encoded()
         , tex_decoded()
         , tex_error()
-        , tex_avg_distance()
-        , tex_max_distance()
-        , tex_component_err()
         , tex_in(&tex_source)
         , tex_out(&tex_source)
         , depth_src(0)
@@ -349,9 +153,6 @@ struct update_pass : texpress::render_pass
             {
                 t_curr = clock.timeF64(texpress::WallclockType::WALLCLK_MS);
                 t_prev = clock.timeF64(texpress::WallclockType::WALLCLK_MS);
-
-                strcpy(buf_path, "G:\\Thesis\\Data\\cl\\ctbl3d.nc");
-
             };
         on_update = [&]()
             {
@@ -815,7 +616,9 @@ struct update_pass : texpress::render_pass
                         static int saveMode = 0;
 
                         if (ImGui::Combo("Select data", &save_selected, save_options.data(), save_options.size())) {
-
+                          if (strlen(buf_path) == 0)
+                            strcpy(save_path, "C:\\out\\data");
+                          else
                             strcpy(save_path, buf_path);
                         }
 
@@ -845,9 +648,13 @@ struct update_pass : texpress::render_pass
                         {
                             ImGui::Text("Info: KTX only correctly supports file sizes <= 4GB.");
                         }
-                        else
+                        else if (saveMode == 1)
                         {
-                            ImGui::NewLine();
+                          ImGui::Text("Info: Dataset dimensions are stored in seperate file as integers as xyzw.");
+                        }
+                        else if (saveMode == 2)
+                        {
+                          ImGui::Text("Info: VTK generates a seperate file for each timeslice.");
                         }
 
                         if (ImGui::Button("Save##popup")) {
@@ -859,12 +666,11 @@ struct update_pass : texpress::render_pass
                                 if (tex_source.data.empty()) { break; }
 
                                 if (saveMode == 1) {
-                                    texpress::file_save(dim_save.c_str(), (char*)tex_source.dimensions.x, sizeof(tex_source.dimensions));
+                                    texpress::file_save(dim_save.c_str(), (char*)&tex_source.dimensions.x, sizeof(tex_source.dimensions));
                                     texpress::file_save(save_path, (char*)tex_source.data.data(), tex_source.bytes());
                                 }
                                 else if (saveMode == 2) {
                                     texpress::save_vtk(save_path, "SourceData", tex_source);
-                                    spdlog::error("No VTK for source data");
                                 }
                                 else {
                                     texpress::save_ktx(tex_source, save_path, array2d, monolithic);
@@ -874,11 +680,11 @@ struct update_pass : texpress::render_pass
                                 if (tex_normalized.data.empty()) { break; }
 
                                 if (saveMode == 1) {
-                                    texpress::file_save(dim_save.c_str(), (char*)tex_normalized.dimensions.x, sizeof(tex_normalized.dimensions));
+                                    texpress::file_save(dim_save.c_str(), (char*)&tex_normalized.dimensions.x, sizeof(tex_normalized.dimensions));
                                     texpress::file_save(save_path, (char*)tex_normalized.data.data(), tex_normalized.bytes());
                                 }
                                 else if (saveMode == 2) {
-                                    spdlog::error("No VTK for normalized data");
+                                  texpress::save_vtk(save_path, "NormalizedData", tex_normalized);
                                 }
                                 else {
                                     texpress::save_ktx(tex_normalized, save_path, array2d, monolithic);
@@ -894,7 +700,7 @@ struct update_pass : texpress::render_pass
                                 if (tex_encoded.data.empty()) { break; }
 
                                 if (saveMode == 1) {
-                                    texpress::file_save(dim_save.c_str(), (char*)tex_encoded.dimensions.x, sizeof(tex_encoded.dimensions));
+                                    texpress::file_save(dim_save.c_str(), (char*)&tex_encoded.dimensions.x, sizeof(tex_encoded.dimensions));
                                     texpress::file_save(save_path, (char*)tex_encoded.data.data(), tex_encoded.bytes());
                                 }
                                 else if (saveMode == 2) {
@@ -914,11 +720,11 @@ struct update_pass : texpress::render_pass
                                 if (tex_decoded.data.empty()) { break; }
 
                                 if (saveMode == 1) {
-                                    texpress::file_save(dim_save.c_str(), (char*)tex_decoded.dimensions.x, sizeof(tex_decoded.dimensions));
+                                    texpress::file_save(dim_save.c_str(), (char*)&tex_decoded.dimensions.x, sizeof(tex_decoded.dimensions));
                                     texpress::file_save(save_path, (char*)tex_decoded.data.data(), tex_decoded.bytes());
                                 }
                                 else if (saveMode == 2) {
-                                    spdlog::error("No VTK for decoded data");
+                                  texpress::save_vtk(save_path, "DecodedData", tex_decoded);
                                 }
                                 else {
                                     texpress::save_ktx(tex_decoded, save_path, array2d, monolithic);
@@ -939,14 +745,14 @@ struct update_pass : texpress::render_pass
                                 }
                                 break;
                             case 5:
-                                if (tex_avg_distance.data.empty() && tex_max_distance.data.empty()) { break; }
+                                if (tex_error.data.empty()) { break; }
 
                                 if (saveMode == 1) {
-                                    texpress::file_save(dim_save.c_str(), (char*)tex_avg_distance.dimensions.x, sizeof(tex_avg_distance.dimensions));
-                                    texpress::file_save(save_path, (char*)tex_avg_distance.data.data(), tex_avg_distance.bytes());
+                                    texpress::file_save(dim_save.c_str(), (char*)&tex_error.dimensions.x, sizeof(tex_error.dimensions));
+                                    texpress::file_save(save_path, (char*)tex_error.data.data(), tex_error.bytes());
                                 }
                                 else if (saveMode == 2) {
-                                    texpress::save_vtk(save_path, "GridError", tex_avg_distance, tex_component_err);
+                                    texpress::save_vtk(save_path, "ErrorData", tex_error);
                                 }
                                 else {
                                     texpress::save_ktx(tex_error, save_path, array2d, monolithic);
@@ -983,33 +789,47 @@ struct update_pass : texpress::render_pass
                         ImGui::InputText("##Loadpath", load_path, 128);
 
                         if (ImGui::Button("Load##Action")) {
+                            auto extension = texpress::str_lowercase(std::filesystem::path(load_path).extension().string());
+                            bool raw = extension == ".raw";
+                            bool vtk = extension == ".vtk";
+                            bool ktx = extension == ".ktx";
+
+                            auto path_dims = std::filesystem::path(load_path).replace_extension("").string() + "_dims" + std::filesystem::path(load_path).extension().string();
+
                             switch (load_selected) {
                             case 0:
-                                if (binary) {
-                                    uint64_t abc_x, abc_y, abc_z, abc_t;
-                                    abc_x = abc_x1 - abc_x0;
-                                    abc_y = abc_y1 - abc_y0;
-                                    abc_z = abc_z1 - abc_z0;
-                                    abc_t = abc_t1 - abc_t0;
-                                    tex_source.channels = 3;
-                                    tex_source.dimensions = { abc_x, abc_y, abc_z, abc_t };
+                                if (raw) {
+                                    texpress::file_read(path_dims.c_str(), (char*)&tex_source.dimensions.x, sizeof(tex_source.dimensions));
+                                    tex_source.channels = texpress::file_size(load_path) / ((uint64_t)tex_source.dimensions.x * (uint64_t)tex_source.dimensions.y * (uint64_t)tex_source.dimensions.z * (uint64_t)tex_source.dimensions.w * sizeof(float));
                                     tex_source.gl_internal = texpress::gl_internal(tex_source.channels, 32, true);
                                     tex_source.gl_format = texpress::gl_format(tex_source.channels);
                                     tex_source.gl_type = gl::GLenum::GL_FLOAT;
-
                                     tex_source.data.resize(texpress::file_size(load_path));
                                     texpress::file_read(load_path, (char*)tex_source.data.data(), tex_source.bytes());
                                     tex_in = &tex_source;
                                 }
-                                else {
+                                else if (ktx) {
                                     texpress::load_ktx(load_path, tex_source);
                                     tex_in = &tex_source;
                                 }
+
                                 break;
                             case 1:
-                                texpress::load_ktx(load_path, tex_normalized);
+                                if (raw) {
+                                    texpress::file_read(path_dims.c_str(), (char*)&tex_normalized.dimensions.x, sizeof(tex_normalized.dimensions));
+                                    tex_normalized.channels = texpress::file_size(load_path) / ((uint64_t)tex_normalized.dimensions.x * (uint64_t)tex_normalized.dimensions.y * (uint64_t)tex_normalized.dimensions.z * (uint64_t)tex_normalized.dimensions.w * sizeof(float));
+                                    tex_normalized.gl_internal = texpress::gl_internal(tex_normalized.channels, 32, true);
+                                    tex_normalized.gl_format = texpress::gl_format(tex_normalized.channels);
+                                    tex_normalized.gl_type = gl::GLenum::GL_FLOAT;
+                                    tex_normalized.data.resize(texpress::file_size(load_path));
+                                    texpress::file_read(load_path, (char*)tex_normalized.data.data(), tex_normalized.bytes());
+                                    tex_out = &tex_normalized;
+                                }
+                                else if (ktx) {
+                                    texpress::load_ktx(load_path, tex_normalized);
+                                    tex_out = &tex_normalized;
+                                }
 
-                                tex_in = &tex_normalized;
                                 break;
                             case 2:
                                 peaks.clear();
@@ -1017,19 +837,55 @@ struct update_pass : texpress::render_pass
                                 texpress::file_read(load_path, (char*)peaks.data(), peaks.size() * sizeof(float));
                                 break;
                             case 3:
-                                texpress::load_ktx(load_path, tex_encoded);
+                                if (raw) {
+                                    texpress::file_read(path_dims.c_str(), (char*)&tex_encoded.dimensions.x, sizeof(tex_encoded.dimensions));
+                                    tex_encoded.channels = 3;
+                                    tex_encoded.gl_internal = texpress::gl_internal(tex_encoded.channels, 32, true);
+                                    tex_encoded.gl_format = texpress::gl_format(tex_encoded.channels);
+                                    tex_encoded.gl_type = gl::GLenum::GL_FLOAT;
+                                    tex_encoded.data.resize(texpress::file_size(load_path));
+                                    texpress::file_read(load_path, (char*)tex_encoded.data.data(), tex_encoded.bytes());
+                                    tex_out = &tex_encoded;
+                                }
+                                else if (ktx) {
+                                    texpress::load_ktx(load_path, tex_encoded);
+                                    tex_out = &tex_encoded;
+                                }
 
-                                tex_out = &tex_encoded;
                                 break;
                             case 4:
-                                texpress::load_ktx(load_path, tex_decoded);
+                                if (raw) {
+                                    texpress::file_read(path_dims.c_str(), (char*)&tex_decoded.dimensions.x, sizeof(tex_decoded.dimensions));
+                                    tex_decoded.channels = texpress::file_size(load_path) / ((uint64_t)tex_decoded.dimensions.x * (uint64_t)tex_decoded.dimensions.y * (uint64_t)tex_decoded.dimensions.z * (uint64_t)tex_decoded.dimensions.w * sizeof(float));
+                                    tex_decoded.gl_internal = texpress::gl_internal(tex_decoded.channels, 32, true);
+                                    tex_decoded.gl_format = texpress::gl_format(tex_decoded.channels);
+                                    tex_decoded.gl_type = gl::GLenum::GL_FLOAT;
+                                    tex_decoded.data.resize(texpress::file_size(load_path));
+                                    texpress::file_read(load_path, (char*)tex_decoded.data.data(), tex_decoded.bytes());
+                                    tex_out = &tex_decoded;
+                                }
+                                else if (ktx) {
+                                    texpress::load_ktx(load_path, tex_decoded);
+                                    tex_out = &tex_decoded;
+                                }
 
-                                tex_out = &tex_decoded;
                                 break;
                             case 5:
-                                texpress::load_ktx(load_path, tex_error);
+                                if (raw) {
+                                    texpress::file_read(path_dims.c_str(), (char*)&tex_error.dimensions.x, sizeof(tex_error.dimensions));
+                                    tex_error.channels = texpress::file_size(load_path) / ((uint64_t)tex_error.dimensions.x * (uint64_t)tex_error.dimensions.y * (uint64_t)tex_error.dimensions.z * (uint64_t)tex_error.dimensions.w * sizeof(float));
+                                    tex_error.gl_internal = texpress::gl_internal(tex_error.channels, 32, true);
+                                    tex_error.gl_format = texpress::gl_format(tex_error.channels);
+                                    tex_error.gl_type = gl::GLenum::GL_FLOAT;
+                                    tex_error.data.resize(texpress::file_size(load_path));
+                                    texpress::file_read(load_path, (char*)tex_error.data.data(), tex_error.bytes());
+                                    tex_out = &tex_error;
+                                }
+                                else if (ktx) {
+                                    texpress::load_ktx(load_path, tex_error);
+                                    tex_out = &tex_error;
+                                }
 
-                                tex_out = &tex_error;
                                 break;
                             }
                         } ImGui::SameLine();
@@ -1043,15 +899,15 @@ struct update_pass : texpress::render_pass
 
                     if (ImGui::Button("Distance Error", { MaxButtonWidth, 0 })) {
                         if (!tex_source.data.empty()) {
-                            distance_error<float, 3>(tex_source, tex_decoded, tex_avg_distance, tex_component_err);
-                            tex_out = &tex_avg_distance;
+                            distance_error(tex_source, tex_decoded, tex_error);
+                            tex_out = &tex_error;
                         }
                     }
 
-                    if (ImGui::Button("Compare", { MaxButtonWidth, 0 })) {
+                    if (ImGui::Button("Component Error", { MaxButtonWidth, 0 })) {
                         if (!tex_source.data.empty()) {
-                            //average_error(tex_source, tex_encoded, encoder);
-                            average_error(tex_source, tex_decoded, encoder);
+                            component_error(tex_source, tex_decoded, tex_error);
+                            tex_out = &tex_error;
                         }
                     }
 
@@ -1183,24 +1039,6 @@ struct update_pass : texpress::render_pass
                     ImGui::Text("Error Field: "); ImGui::SameLine();
                     ImGui::Text((std::to_string(tex_error.bytes() / (1024 * 1024)) + "MB").c_str());
 
-                    if (ImGui::Button("Delete##error_avgdist")) {
-                        if (tex_in == &tex_avg_distance) { tex_in = nullptr; }
-                        if (tex_out == &tex_avg_distance) { tex_out = nullptr; }
-                        tex_avg_distance.data.clear();
-                        tex_avg_distance.data.shrink_to_fit();
-                    } ImGui::SameLine();
-                    ImGui::Text("Avg Distance Error: "); ImGui::SameLine();
-                    ImGui::Text((std::to_string(tex_avg_distance.bytes() / (1024 * 1024)) + "MB").c_str());
-
-                    if (ImGui::Button("Delete##errormaxdist")) {
-                        if (tex_in == &tex_max_distance) { tex_in = nullptr; }
-                        if (tex_out == &tex_max_distance) { tex_out = nullptr; }
-                        tex_max_distance.data.clear();
-                        tex_max_distance.data.shrink_to_fit();
-                    } ImGui::SameLine();
-                    ImGui::Text("Max Distance Error: "); ImGui::SameLine();
-                    ImGui::Text((std::to_string(tex_max_distance.bytes() / (1024 * 1024)) + "MB").c_str());
-
                     ImGui::EndChild();
                 }
 
@@ -1292,9 +1130,6 @@ struct update_pass : texpress::render_pass
     texpress::Texture tex_encoded;
     texpress::Texture tex_decoded;
     texpress::Texture tex_error;
-    texpress::Texture tex_avg_distance;
-    texpress::Texture tex_max_distance;
-    texpress::Texture tex_component_err;
     texpress::Texture* tex_in;
     texpress::Texture* tex_out;
 

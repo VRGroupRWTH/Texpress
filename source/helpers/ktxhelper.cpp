@@ -260,9 +260,9 @@ namespace texpress {
             "Dimensions",
             &valueLen, (void**)&pValue))
         {
-            auto dimensions = *reinterpret_cast<glm::ivec4*>(pValue);
-            dimensions.z = dimensions.z;
-            dimensions.w = dimensions.w;
+            auto dims = *reinterpret_cast<glm::ivec4*>(pValue);
+            dimensions.z = dims.z;
+            dimensions.w = dims.w;
         }
 
         uint64_t bytes = ktxTexture_GetDataSize(ktxTexture(texture));

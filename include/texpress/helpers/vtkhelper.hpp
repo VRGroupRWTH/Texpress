@@ -2,6 +2,7 @@
 #include <fstream>
 #include <texpress/types/texture.hpp>
 #include <array>
+#include <filesystem>
 
 // Thanks to https://stackoverflow.com/questions/105252
 template <typename T>
@@ -103,6 +104,8 @@ bool save_vtk(std::string path, const vtk_points& points, const std::vector<vtk_
             }
         }
     }
+
+    outVTK.close();
 
     return 1;
 }
@@ -276,68 +279,80 @@ namespace texpress {
         vtk_points points;
         points.nx = tex.dimensions.x;
         points.ny = tex.dimensions.y;
-        points.nz = tex.dimensions.z * tex.dimensions.w;
+        points.nz = tex.dimensions.z;
         points.sx = 1;
         points.sy = 1;
         points.sz = 1;
-        points.title = "Vectorfield";
+        points.title = "Data";
 
         int numPoints = points.nx * points.ny * points.nz;
 
-        // Open File
-        std::ofstream outVTK;
+        for (int nt = 0; nt < tex.dimensions.w; nt++)
+        {
+          // Open File
+          std::ofstream outVTK;
+          std::string nt_str;
+          nt_str.resize(std::to_string(tex.dimensions.w).length());
+          snprintf(nt_str.data(), nt_str.size() + 1, "%0*d", std::to_string(tex.dimensions.w).length(), nt);
+          auto path_nt = std::filesystem::path(path).replace_extension("").string() + "_t" + nt_str + ".vtk";
 
-        if (binary) {
-            outVTK.open(path, std::ios::out | std::ios::binary);
-        }
-        else {
-            outVTK.open(path);
-        }
+          auto title_nt = std::string(vtk_title) + "_t" + std::string(nt_str);
 
-        if (outVTK.fail()) return 0;
+          if (binary) {
+              outVTK.open(path_nt, std::ios::out | std::ios::binary);
+          }
+          else {
+              outVTK.open(path, std::ios::out);
+          }
 
-        // ====================================================
-        //                      HEADER
-        // ====================================================
+          if (!outVTK.good()) return 0;
 
-        outVTK << "# vtk DataFile Version 4.0\n"
-            << points.title << "\n"
-            << (binary ? "BINARY" : "ASCII") << "\n"
-            << "DATASET STRUCTURED_POINTS" << "\n"
-            << "DIMENSIONS " << points.nx << " " << points.ny << " " << points.nz << " " << "\n"
-            << "ORIGIN 0 0 0" << "\n"
-            << "SPACING " << points.sx << " " << points.sy << " " << points.sz << "\n";
+          // ====================================================
+          //                      HEADER
+          // ====================================================
 
-        // ====================================================
-        //     DATASET ATTRIBUTES (POINT DATA/VERTEX DATA)
-        // ====================================================
+          outVTK << "# vtk DataFile Version 4.0\n"
+              << title_nt << "\n"
+              << (binary ? "BINARY" : "ASCII") << "\n"
+              << "DATASET STRUCTURED_POINTS" << "\n"
+              << "DIMENSIONS " << points.nx << " " << points.ny << " " << points.nz << " " << "\n"
+              << "ORIGIN 0 0 0" << "\n"
+              << "SPACING " << points.sx << " " << points.sy << " " << points.sz << "\n";
 
-        outVTK << "POINT_DATA " << numPoints << std::endl;
-        outVTK << "VECTORS " << points.title << " " << "float" << std::endl;
+          // ====================================================
+          //     DATASET ATTRIBUTES (POINT DATA/VERTEX DATA)
+          // ====================================================
 
-        for (auto point_idx = 0; point_idx < numPoints; point_idx++) {
-            for (auto component = 0; component < tex.channels; component++) {
-                auto scalar = tex.data[point_idx * tex.channels + component];
+          outVTK << "POINT_DATA " << numPoints << std::endl;
+          outVTK << "VECTORS " << points.title << " " << "float" << std::endl;
 
-                if (binary) {
-                    SwapEnd(scalar);
+          for (size_t point_idx = 0; point_idx < numPoints; point_idx++) {
+              for (auto component = 0; component < tex.channels; component++) {
+                  auto idx = point_idx * (size_t)tex.channels + (size_t)component + nt * (size_t)tex.channels * (size_t)component * (size_t)points.nx * (size_t)points.ny * (size_t)points.nz;
+                  auto scalar = tex.data[idx];
 
-                    outVTK.write(reinterpret_cast<char*>(&scalar), sizeof(float));
-                }
-                else {
-                    // Write error
-                    outVTK << scalar;
+                  if (binary) {
+                      SwapEnd(scalar);
 
-                    // If vector, check whether to write space or endline
-                    if (component == (tex.channels - 1)) {
-                        outVTK << std::endl;
-                    }
-                    else {
-                        outVTK << " ";
-                    }
+                      outVTK.write(reinterpret_cast<char*>(&scalar), sizeof(float));
+                  }
+                  else {
+                      // Write error
+                      outVTK << scalar;
 
-                }
-            }
+                      // If vector, check whether to write space or endline
+                      if (component == (tex.channels - 1)) {
+                          outVTK << std::endl;
+                      }
+                      else {
+                          outVTK << " ";
+                      }
+
+                  }
+              }
+          }
+
+          outVTK.close();
         }
 
         return 1;

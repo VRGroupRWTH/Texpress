@@ -7,8 +7,6 @@ cd vcpkg
 if not exist "vcpkg.exe" call bootstrap-vcpkg.bat
 
 set VCPKG_DEFAULT_TRIPLET=x64-windows
-rem Add your library ports here.
-rem vcpkg install --recurse boost-accumulators boost-multi-array boost-signals2 catch2 glfw3 globjects stb imgui[glfw-binding,opengl3-binding] spdlog highfive[boost] ktx fp16
 vcpkg install
 cd ..
 
