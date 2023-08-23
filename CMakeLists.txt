@@ -61,9 +61,6 @@ include(import_library)
 find_package  (Boost REQUIRED)
 import_library(Boost_INCLUDE_DIRS)
 
-find_package  (Catch2 REQUIRED)
-list          (APPEND PROJECT_LIBRARIES Catch2::Catch2WithMain)
-
 find_package  (glfw3 REQUIRED)
 list          (APPEND PROJECT_LIBRARIES glfw)
 
@@ -82,28 +79,18 @@ list          (APPEND PROJECT_LIBRARIES spdlog::spdlog)
 find_path     (FP16_INCLUDE_DIRS "fp16.h")
 import_library(FP16_INCLUDE_DIRS)
 
-#set           (Compressonator_SHARED TRUE)
-#find_package  (Compressonator REQUIRED)
-#list          (APPEND PROJECT_LIBRARIES Compressonator::Compressonator)
-
 find_package  (ktx REQUIRED)
 list          (APPEND PROJECT_LIBRARIES KTX::ktx)
 
 find_package  (HighFive REQUIRED)
 list          (APPEND PROJECT_LIBRARIES HighFive)
 
-find_path     (tinygltf_INCLUDE_DIRS "tiny_gltf.h")
-import_library(tinygltf_INCLUDE_DIRS)
-
-find_package  (tinyexr CONFIG REQUIRED)
-list          (APPEND PROJECT_LIBRARIES unofficial::tinyexr::tinyexr)
-
 find_package   (NVTT REQUIRED)
 list           (APPEND PROJECT_LIBRARIES NVTT::NVTT)
 
 
 ##################################################    Targets     ##################################################
-add_library(${PROJECT_NAME} ${PROJECT_FILES})
+add_executable(${PROJECT_NAME} ${PROJECT_FILES})
 
 target_include_directories(${PROJECT_NAME} PUBLIC 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -119,56 +106,8 @@ if(NOT BUILD_SHARED_LIBS)
   set_target_properties(${PROJECT_NAME} PROPERTIES COMPILE_FLAGS -D${PROJECT_NAME_UPPER}_STATIC)
 endif()
 
-# Import dependent dlls of NVTT
-#add_custom_command (TARGET ${PROJECT_NAME} POST_BUILD
-#  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-#  # Copy NVTT dll
-#  $<TARGET_FILE:NVTT::NVTT> $<TARGET_FILE_DIR:${PROJECT_NAME}>
-#)
-
 add_custom_command (TARGET ${PROJECT_NAME} POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
   # Copy NVTT dll
   $<TARGET_FILE:NVTT::NVTT> $<TARGET_FILE_DIR:${PROJECT_NAME}>
 )
-
-##################################################    Postbuild   ##################################################
-include               (GenerateExportHeader)
-string                (TOUPPER ${PROJECT_NAME} PROJECT_NAME_UPPER)
-generate_export_header(${PROJECT_NAME} 
-  EXPORT_FILE_NAME     ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/export.hpp
-  EXPORT_MACRO_NAME    ${PROJECT_NAME_UPPER}_EXPORT
-  STATIC_DEFINE        ${PROJECT_NAME_UPPER}_STATIC
-)
-
-##################################################    Testing     ##################################################
-if(BUILD_TESTS)
-  enable_testing       ()
-  set                  (TEST_MAIN_NAME catch_main)
-  set                  (TEST_MAIN_SOURCES tests/catch/main.cpp)
-  add_library          (${TEST_MAIN_NAME} OBJECT ${TEST_MAIN_SOURCES})
-  target_link_libraries(${TEST_MAIN_NAME} ${PROJECT_NAME})
-  set_property         (TARGET ${TEST_MAIN_NAME} PROPERTY FOLDER tests/catch)
-  assign_source_group  (${TEST_MAIN_SOURCES})
-
-  file(GLOB PROJECT_TEST_CPPS tests/*.cpp)
-  foreach(_SOURCE ${PROJECT_TEST_CPPS})
-    get_filename_component(_NAME ${_SOURCE} NAME_WE)
-    add_executable        (${_NAME} ${_SOURCE} $<TARGET_OBJECTS:${TEST_MAIN_NAME}>)
-    target_link_libraries (${_NAME} ${PROJECT_NAME} ${PROJECT_LIBRARIES})
-    add_test              (${_NAME} ${_NAME})
-    set_property          (TARGET ${_NAME} PROPERTY FOLDER tests)
-    assign_source_group   (${_SOURCE})
-  endforeach()
-endif()
-
-##################################################  Installation  ##################################################
-# Currently doesnt work because KTexComp, as it can't be exported right now
-
-install(TARGETS ${PROJECT_NAME} EXPORT ${PROJECT_NAME}-config
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION bin)
-install(DIRECTORY include/ DESTINATION include)
-install(EXPORT  ${PROJECT_NAME}-config DESTINATION cmake)
-export (TARGETS ${PROJECT_NAME}        FILE        ${PROJECT_NAME}-config.cmake)

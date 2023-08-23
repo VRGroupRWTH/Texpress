@@ -72,8 +72,8 @@ if(WIN32)
     NVTT::NVTT
     PROPERTIES
       INTERFACE_INCLUDE_DIRECTORIES "${NVTT_DIR}/include"
-      IMPORTED_IMPLIB ${NVTT_LIBRARY}
-      IMPORTED_LOCATION ${_NVTT_SL}
+      IMPORTED_IMPLIB "${NVTT_LIB}"
+      IMPORTED_LOCATION "${_NVTT_SL}"
   )
 else()
   set_target_properties(

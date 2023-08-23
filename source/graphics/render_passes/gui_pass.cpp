@@ -11,19 +11,19 @@
 
 namespace texpress
 {
-render_pass make_gui_pass(GLFWwindow* window)
-{
-  return render_pass
-  {
-    [ ] ()
+    render_pass make_gui_pass(GLFWwindow* window)
     {
-      // noop
-    },
-    [=] ()
-    {
-      ImGui::Render();
-      ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        return render_pass
+        {
+          []()
+          {
+                // noop
+              },
+              [=]()
+              {
+                ImGui::Render();
+                ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+              }
+        };
     }
-  };
-}
 }

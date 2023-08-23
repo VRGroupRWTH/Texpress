@@ -1,4 +1,5 @@
 *build/*
 *export.hpp
+vcpkg_installed/
 
 *.jpg

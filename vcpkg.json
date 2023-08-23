@@ -1,0 +1,71 @@
+{
+    "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+    "name": "texpress",
+    "version": "1.0.0",
+    "dependencies": [
+      "boost-accumulators",
+      "boost-multi-array",
+      "boost-signals2",
+      "glfw3",
+      "globjects",
+      "stb",
+      {
+        "name": "imgui",
+        "features": ["glfw-binding", "opengl3-binding"]
+      },
+      "spdlog",
+      {
+        "name": "highfive",
+        "features": ["boost"]
+      },
+      "ktx",
+      "fp16"
+    ],
+    "builtin-baseline": "d5b03c125afee1d9cef38f4cfa77e229400fb48a",
+    "overrides": [
+        {
+            "name": "boost-accumulators",
+            "version": "1.82.0#2"
+        },
+        {
+            "name": "boost-multi-array",
+            "version": "1.82.0#2"
+        },
+        {
+            "name": "boost-signals2",
+            "version": "1.82.0#2"
+        },
+        {
+            "name": "glfw3",
+            "version": "3.3.8#2"
+        },
+        {
+            "name": "globjects",
+            "version": "1.1.0#6"
+        },
+        {
+            "name": "stb",
+            "version": "2023-04-11#1"
+        },
+        {
+            "name": "imgui",
+            "version": "1.89.7"
+        },
+        {
+            "name": "spdlog",
+            "version": "1.12.0"
+        },
+        {
+            "name": "highfive",
+            "version": "2.6.2#2"
+        },
+        {
+            "name": "ktx",
+            "version": "4.1.0"
+        },
+        {
+            "name": "fp16",
+            "version": "2021-02-21#2"
+        }
+    ]
+  }

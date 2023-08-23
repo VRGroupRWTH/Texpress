@@ -11,22 +11,22 @@
 
 namespace texpress
 {
-render_pass make_prepare_pass(GLFWwindow* window)
-{
-  return render_pass
-  {
-    [ ] ()
+    render_pass make_prepare_pass(GLFWwindow* window)
     {
-      // noop
-    },
-    [=] ()
-    {
-      glfwPollEvents();
+        return render_pass
+        {
+          []()
+          {
+                // noop
+              },
+              [=]()
+              {
+                glfwPollEvents();
 
-      ImGui_ImplOpenGL3_NewFrame();
-      ImGui_ImplGlfw_NewFrame();
-      ImGui::NewFrame();
+                ImGui_ImplOpenGL3_NewFrame();
+                ImGui_ImplGlfw_NewFrame();
+                ImGui::NewFrame();
+              }
+        };
     }
-  };
-}
 }

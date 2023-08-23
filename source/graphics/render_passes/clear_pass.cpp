@@ -10,21 +10,21 @@
 
 namespace texpress
 {
-render_pass make_clear_pass(GLFWwindow* window)
-{
-  return render_pass
-  {
-    [ ] ()
+    render_pass make_clear_pass(GLFWwindow* window)
     {
-      globjects::Framebuffer::defaultFBO()->clearColor(0.1, 0.1, 0.1, 1.0);
-    },
-    [=] ()
-    {
-      glm::ivec2 size;
-      glfwGetFramebufferSize(window, &size[0], &size[1]);
-      gl::glViewport        (0, 0,    size[0],  size[1]);
-      globjects::Framebuffer::defaultFBO()->clear(gl::ClearBufferMask::GL_COLOR_BUFFER_BIT | gl::ClearBufferMask::GL_DEPTH_BUFFER_BIT);
+        return render_pass
+        {
+          []()
+          {
+            globjects::Framebuffer::defaultFBO()->clearColor(0.1, 0.1, 0.1, 1.0);
+          },
+          [=]()
+          {
+            glm::ivec2 size;
+            glfwGetFramebufferSize(window, &size[0], &size[1]);
+            gl::glViewport(0, 0,    size[0],  size[1]);
+            globjects::Framebuffer::defaultFBO()->clear(gl::ClearBufferMask::GL_COLOR_BUFFER_BIT | gl::ClearBufferMask::GL_DEPTH_BUFFER_BIT);
+          }
+        };
     }
-  };
-}
 }

@@ -4,19 +4,19 @@
 
 namespace texpress
 {
-render_pass make_swap_pass(GLFWwindow* window)
-{
-  return render_pass
-  {
-    [ ] ()
+    render_pass make_swap_pass(GLFWwindow* window)
     {
-      
-    },
-    [=] ()
-    {
-      glfwSwapBuffers(window);
-      glfwPollEvents ();
+        return render_pass
+        {
+          []()
+          {
+
+          },
+          [=]()
+          {
+            glfwSwapBuffers(window);
+            glfwPollEvents();
+          }
+        };
     }
-  };
-}
 }
