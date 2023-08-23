@@ -89,8 +89,8 @@ namespace texpress {
                 *progress_output = percentage;
             }
             else {
-                //printf("\r%d%%", percentage);
-                //fflush(stdout);
+                printf("\r%d%%", percentage);
+                fflush(stdout);
             }
         }
         return true;
@@ -348,18 +348,18 @@ namespace texpress {
         const float* a_ptr = (input.channels >= 4) ? surface.channel(3) : nullptr;
 
         float* out_ptr = reinterpret_cast<float*>(output.data_ptr);
-        for (auto p = 0; p < input.dim_x * input.dim_y * input.dim_z * input.dim_t; p++) {
+        for (auto p = 0; p < (uint64_t)input.dim_x * (uint64_t)input.dim_y * (uint64_t)input.dim_z * (uint64_t)input.dim_t; p++) {
             if (r_ptr) {
-                out_ptr[p * input.channels + 0] = r_ptr[p];
+                out_ptr[p * input.channels + 0UL] = r_ptr[p];
             }
             if (g_ptr) {
-                out_ptr[p * input.channels + 1] = g_ptr[p];
+                out_ptr[p * input.channels + 1UL] = g_ptr[p];
             }
             if (b_ptr) {
-                out_ptr[p * input.channels + 2] = b_ptr[p];
+                out_ptr[p * input.channels + 2UL] = b_ptr[p];
             }
             if (a_ptr) {
-                out_ptr[p * input.channels + 3] = a_ptr[p];
+                out_ptr[p * input.channels + 3UL] = a_ptr[p];
             }
         }
 

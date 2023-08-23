@@ -555,12 +555,6 @@ struct update_pass : texpress::render_pass
                         tex_decoded.data.resize(output.data_bytes);
                         output.data_ptr = reinterpret_cast<uint8_t*>(tex_decoded.data.data());
 
-                        /*
-                        if (encoder->decompress(input, output)) {
-                          spdlog::info("Decompressed!");
-                        }
-                        */
-
                         for (uint32_t d = 0; d < tex_encoded.dimensions.z * tex_encoded.dimensions.w; d++) {
                             encoder->decompress(input, output, d);
                         }
