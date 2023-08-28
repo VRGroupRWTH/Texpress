@@ -18,6 +18,7 @@ namespace texpress
         glm::ivec3 enc_blocksize = glm::ivec3(0);     // extents of block dimensions (ignored for uncompressed)
 
         uint64_t bytes() const {
+            //return data.size();
             return data.size();
         }
 

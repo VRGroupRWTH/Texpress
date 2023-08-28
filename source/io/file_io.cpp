@@ -44,7 +44,7 @@ uint64_t texpress::file_size(const char* path) {
     return file_size;
 }
 
-bool texpress::file_read(const char* path, char* buffer, uint64_t buffer_size, FileType type) {
+bool texpress::file_read(const char* path, char* buffer, uint64_t buffer_size, uint64_t offset, FileType type) {
     // Default: open file at the end of file
     std::ios::ios_base::openmode file_mode = std::ios::ate;
 
@@ -63,21 +63,12 @@ bool texpress::file_read(const char* path, char* buffer, uint64_t buffer_size, F
 
     // Get file locations and size
     std::streampos end = file.tellg();
-    file.seekg(0, std::ios::beg);
+    file.seekg(offset, std::ios::beg);
     std::streampos begin = file.tellg();
     double file_size = end - begin;
 
-
-    if (file_size > buffer_size) {
-        spdlog::error("Provided buffer for file " + std::string(path) + "is too small: "
-            + std::to_string(buffer_size) + "<" + std::to_string(file_size));
-
-        file.close();
-        return false;
-    }
-
     // Read file
-    if (!file.read(buffer, end)) {
+    if (!file.read(buffer, buffer_size)) {
         spdlog::warn("Problem during fileread");
     }
 
@@ -86,9 +77,12 @@ bool texpress::file_read(const char* path, char* buffer, uint64_t buffer_size, F
     return true;
 
 }
-bool texpress::file_save(const char* path, char* buffer, uint64_t buffer_size, FileType type) {
+bool texpress::file_save(const char* path, char* buffer, uint64_t buffer_size, bool append, FileType type) {
     // Default: open file at the end of file
     std::ios::ios_base::openmode file_mode = std::ios::out;
+
+    if (append)
+        file_mode |= std::ios::app | std::ios::ate;
 
     // Bbinary data
     if (type == FileType::FILE_BINARY) {
@@ -96,7 +90,7 @@ bool texpress::file_save(const char* path, char* buffer, uint64_t buffer_size, F
     }
 
     // Open file
-    std::ofstream file(path, file_mode);
+    std::fstream file(path, file_mode);
     if (!file) {
         spdlog::warn("File " + std::string(path) + "could not be opened!");
         return false;

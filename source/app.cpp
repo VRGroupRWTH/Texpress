@@ -21,6 +21,50 @@
 
 using namespace boost::accumulators;
 
+int save_deinterleaved(const char* path, const texpress::Texture& tex, bool append)
+{
+    std::ios::ios_base::openmode file_mode = std::ios::out | std::ios::binary;
+
+    if (append)
+        file_mode |= std::ios::app | std::ios::ate;
+
+    std::vector<float> slice(tex.dimensions.x * tex.dimensions.y * tex.dimensions.z);
+    float* tex_fptr = (float*)tex.data.data();
+
+
+    std::fstream file(path, file_mode);
+    if (!file.good())
+        return -1;
+
+    for (uint64_t c = 0; c < tex.channels; c++)
+    {
+        for (uint64_t t = 0; t < tex.dimensions.w; t++)
+        {
+            for (uint64_t z = 0; z < tex.dimensions.z; z++)
+            {
+                for (uint64_t y = 0; y < tex.dimensions.y; y++)
+                {
+                    for (uint64_t x = 0; x < tex.dimensions.x; x++)
+                    {
+                        size_t idx_slice = z * (uint64_t)tex.dimensions.y * (uint64_t)tex.dimensions.x + y * (uint64_t)tex.dimensions.x + x;
+                        size_t idx_tex = c + (t * (uint64_t)tex.dimensions.z * (uint64_t)tex.dimensions.y * (uint64_t)tex.dimensions.x + z * (uint64_t)tex.dimensions.y * (uint64_t)tex.dimensions.x + y * (uint64_t)tex.dimensions.x + x) * (uint64_t)tex.channels;
+
+                        slice[idx_slice] = tex_fptr[idx_tex];
+                    }
+
+
+                }
+            }
+
+            file.write((char*)slice.data(), slice.size() * sizeof(float));
+            std::fill(slice.begin(), slice.end(), 0);
+        }
+    }
+
+    file.close();
+    return 0;
+}
+
 
 void component_error(const texpress::Texture& tex_a, const texpress::Texture& tex_b, texpress::Texture& tex_error) {
     tex_error.data.clear();
@@ -620,10 +664,14 @@ struct update_pass : texpress::render_pass
 
                         static bool array2d = false;
                         static bool monolithic = true;
+                        static bool save_noninterleaved = false;
 
                         ImGui::RadioButton("KTX", &saveMode, 0); ImGui::SameLine();
                         ImGui::RadioButton("Raw", &saveMode, 1); ImGui::SameLine();
                         ImGui::RadioButton("VTK", &saveMode, 2);
+
+                        if (save_selected != 2 && save_selected != 4 && saveMode == 1)
+                            ImGui::Checkbox("Save non-interleaved", &save_noninterleaved);
 
                         {
                             std::string tmp = std::filesystem::path(save_path).replace_extension("").string();
@@ -651,6 +699,9 @@ struct update_pass : texpress::render_pass
                           ImGui::Text("Info: VTK generates a seperate file for each timeslice.");
                         }
 
+                        ImGui::Text("      Uncompressed data can be saved non-interleaved in raw mode only.");
+                        ImGui::Text("      Grid error analysis may only work with interleaved data.");
+
                         if (ImGui::Button("Save##popup")) {
 
                             auto dim_save = std::filesystem::path(save_path).replace_extension("").string() + "_dims.raw";
@@ -660,8 +711,12 @@ struct update_pass : texpress::render_pass
                                 if (tex_source.data.empty()) { break; }
 
                                 if (saveMode == 1) {
-                                    texpress::file_save(dim_save.c_str(), (char*)&tex_source.dimensions.x, sizeof(tex_source.dimensions));
-                                    texpress::file_save(save_path, (char*)tex_source.data.data(), tex_source.bytes());
+                                    //texpress::file_save(dim_save.c_str(), (char*)&tex_source.dimensions.x, sizeof(tex_source.dimensions));
+                                    texpress::file_save(save_path, (char*)&tex_source.dimensions.x, sizeof(tex_source.dimensions));
+                                    if (save_noninterleaved)
+                                        save_deinterleaved(save_path, tex_source, true);
+                                    else
+                                        texpress::file_save(save_path, (char*)tex_source.data.data(), tex_source.bytes(), true);
                                 }
                                 else if (saveMode == 2) {
                                     texpress::save_vtk(save_path, "SourceData", tex_source);
@@ -675,7 +730,10 @@ struct update_pass : texpress::render_pass
 
                                 if (saveMode == 1) {
                                     texpress::file_save(dim_save.c_str(), (char*)&tex_normalized.dimensions.x, sizeof(tex_normalized.dimensions));
-                                    texpress::file_save(save_path, (char*)tex_normalized.data.data(), tex_normalized.bytes());
+                                    if (save_noninterleaved)
+                                        save_deinterleaved(save_path, tex_normalized, true);
+                                    else
+                                        texpress::file_save(save_path, (char*)tex_normalized.data.data(), tex_normalized.bytes());
                                 }
                                 else if (saveMode == 2) {
                                   texpress::save_vtk(save_path, "NormalizedData", tex_normalized);
@@ -715,7 +773,10 @@ struct update_pass : texpress::render_pass
 
                                 if (saveMode == 1) {
                                     texpress::file_save(dim_save.c_str(), (char*)&tex_decoded.dimensions.x, sizeof(tex_decoded.dimensions));
-                                    texpress::file_save(save_path, (char*)tex_decoded.data.data(), tex_decoded.bytes());
+                                    if (save_noninterleaved)
+                                        save_deinterleaved(save_path, tex_decoded, true);
+                                    else
+                                        texpress::file_save(save_path, (char*)tex_decoded.data.data(), tex_decoded.bytes());
                                 }
                                 else if (saveMode == 2) {
                                   texpress::save_vtk(save_path, "DecodedData", tex_decoded);
@@ -743,7 +804,10 @@ struct update_pass : texpress::render_pass
 
                                 if (saveMode == 1) {
                                     texpress::file_save(dim_save.c_str(), (char*)&tex_error.dimensions.x, sizeof(tex_error.dimensions));
-                                    texpress::file_save(save_path, (char*)tex_error.data.data(), tex_error.bytes());
+                                    if (save_noninterleaved)
+                                        save_deinterleaved(save_path, tex_error, true);
+                                    else
+                                        texpress::file_save(save_path, (char*)tex_error.data.data(), tex_error.bytes());
                                 }
                                 else if (saveMode == 2) {
                                     texpress::save_vtk(save_path, "ErrorData", tex_error);
@@ -777,9 +841,6 @@ struct update_pass : texpress::render_pass
                             }
                         }
 
-                        static bool binary = false;
-                        ImGui::Checkbox("Raw##2", &binary);
-
                         ImGui::InputText("##Loadpath", load_path, 128);
 
                         if (ImGui::Button("Load##Action")) {
@@ -789,17 +850,24 @@ struct update_pass : texpress::render_pass
                             bool ktx = extension == ".ktx";
 
                             auto path_dims = std::filesystem::path(load_path).replace_extension("").string() + "_dims" + std::filesystem::path(load_path).extension().string();
+                            bool seperate_dims = std::filesystem::exists(path_dims);
+                            int sep_dim_size = !seperate_dims * sizeof(tex_source.dimensions);
 
                             switch (load_selected) {
+
                             case 0:
                                 if (raw) {
-                                    texpress::file_read(path_dims.c_str(), (char*)&tex_source.dimensions.x, sizeof(tex_source.dimensions));
+                                    if (seperate_dims)
+                                        texpress::file_read(path_dims.c_str(), (char*)&tex_source.dimensions.x, sizeof(tex_source.dimensions));
+                                    else
+                                        texpress::file_read(load_path, (char*)&tex_source.dimensions.x, sizeof(tex_source.dimensions));
+
                                     tex_source.channels = texpress::file_size(load_path) / ((uint64_t)tex_source.dimensions.x * (uint64_t)tex_source.dimensions.y * (uint64_t)tex_source.dimensions.z * (uint64_t)tex_source.dimensions.w * sizeof(float));
                                     tex_source.gl_internal = texpress::gl_internal(tex_source.channels, 32, true);
                                     tex_source.gl_format = texpress::gl_format(tex_source.channels);
                                     tex_source.gl_type = gl::GLenum::GL_FLOAT;
-                                    tex_source.data.resize(texpress::file_size(load_path));
-                                    texpress::file_read(load_path, (char*)tex_source.data.data(), tex_source.bytes());
+                                    tex_source.data.resize(texpress::file_size(load_path) - sep_dim_size);
+                                    texpress::file_read(load_path, (char*)tex_source.data.data(), tex_source.bytes(), sep_dim_size);
                                     tex_in = &tex_source;
                                 }
                                 else if (ktx) {
@@ -810,12 +878,16 @@ struct update_pass : texpress::render_pass
                                 break;
                             case 1:
                                 if (raw) {
-                                    texpress::file_read(path_dims.c_str(), (char*)&tex_normalized.dimensions.x, sizeof(tex_normalized.dimensions));
+                                    if (seperate_dims)
+                                        texpress::file_read(path_dims.c_str(), (char*)&tex_normalized.dimensions.x, sizeof(tex_normalized.dimensions));
+                                    else
+                                        texpress::file_read(load_path, (char*)&tex_normalized.dimensions.x, sizeof(tex_normalized.dimensions));
+
                                     tex_normalized.channels = texpress::file_size(load_path) / ((uint64_t)tex_normalized.dimensions.x * (uint64_t)tex_normalized.dimensions.y * (uint64_t)tex_normalized.dimensions.z * (uint64_t)tex_normalized.dimensions.w * sizeof(float));
                                     tex_normalized.gl_internal = texpress::gl_internal(tex_normalized.channels, 32, true);
                                     tex_normalized.gl_format = texpress::gl_format(tex_normalized.channels);
                                     tex_normalized.gl_type = gl::GLenum::GL_FLOAT;
-                                    tex_normalized.data.resize(texpress::file_size(load_path));
+                                    tex_normalized.data.resize(texpress::file_size(load_path) - sep_dim_size);
                                     texpress::file_read(load_path, (char*)tex_normalized.data.data(), tex_normalized.bytes());
                                     tex_out = &tex_normalized;
                                 }
@@ -832,12 +904,16 @@ struct update_pass : texpress::render_pass
                                 break;
                             case 3:
                                 if (raw) {
-                                    texpress::file_read(path_dims.c_str(), (char*)&tex_encoded.dimensions.x, sizeof(tex_encoded.dimensions));
+                                    if (seperate_dims)
+                                        texpress::file_read(path_dims.c_str(), (char*)&tex_encoded.dimensions.x, sizeof(tex_encoded.dimensions));
+                                    else
+                                        texpress::file_read(load_path, (char*)&tex_encoded.dimensions.x, sizeof(tex_encoded.dimensions));
+
                                     tex_encoded.channels = 3;
                                     tex_encoded.gl_internal = texpress::gl_internal(tex_encoded.channels, 32, true);
                                     tex_encoded.gl_format = texpress::gl_format(tex_encoded.channels);
                                     tex_encoded.gl_type = gl::GLenum::GL_FLOAT;
-                                    tex_encoded.data.resize(texpress::file_size(load_path));
+                                    tex_encoded.data.resize(texpress::file_size(load_path) - sep_dim_size);
                                     texpress::file_read(load_path, (char*)tex_encoded.data.data(), tex_encoded.bytes());
                                     tex_out = &tex_encoded;
                                 }
@@ -849,12 +925,16 @@ struct update_pass : texpress::render_pass
                                 break;
                             case 4:
                                 if (raw) {
-                                    texpress::file_read(path_dims.c_str(), (char*)&tex_decoded.dimensions.x, sizeof(tex_decoded.dimensions));
+                                    if (seperate_dims)
+                                        texpress::file_read(path_dims.c_str(), (char*)&tex_decoded.dimensions.x, sizeof(tex_decoded.dimensions));
+                                    else
+                                        texpress::file_read(load_path, (char*)&tex_decoded.dimensions.x, sizeof(tex_decoded.dimensions));
+
                                     tex_decoded.channels = texpress::file_size(load_path) / ((uint64_t)tex_decoded.dimensions.x * (uint64_t)tex_decoded.dimensions.y * (uint64_t)tex_decoded.dimensions.z * (uint64_t)tex_decoded.dimensions.w * sizeof(float));
                                     tex_decoded.gl_internal = texpress::gl_internal(tex_decoded.channels, 32, true);
                                     tex_decoded.gl_format = texpress::gl_format(tex_decoded.channels);
                                     tex_decoded.gl_type = gl::GLenum::GL_FLOAT;
-                                    tex_decoded.data.resize(texpress::file_size(load_path));
+                                    tex_decoded.data.resize(texpress::file_size(load_path) - sep_dim_size);
                                     texpress::file_read(load_path, (char*)tex_decoded.data.data(), tex_decoded.bytes());
                                     tex_out = &tex_decoded;
                                 }
@@ -866,12 +946,16 @@ struct update_pass : texpress::render_pass
                                 break;
                             case 5:
                                 if (raw) {
-                                    texpress::file_read(path_dims.c_str(), (char*)&tex_error.dimensions.x, sizeof(tex_error.dimensions));
+                                    if (seperate_dims)
+                                        texpress::file_read(path_dims.c_str(), (char*)&tex_error.dimensions.x, sizeof(tex_error.dimensions));
+                                    else
+                                        texpress::file_read(load_path, (char*)&tex_error.dimensions.x, sizeof(tex_error.dimensions));
+
                                     tex_error.channels = texpress::file_size(load_path) / ((uint64_t)tex_error.dimensions.x * (uint64_t)tex_error.dimensions.y * (uint64_t)tex_error.dimensions.z * (uint64_t)tex_error.dimensions.w * sizeof(float));
                                     tex_error.gl_internal = texpress::gl_internal(tex_error.channels, 32, true);
                                     tex_error.gl_format = texpress::gl_format(tex_error.channels);
                                     tex_error.gl_type = gl::GLenum::GL_FLOAT;
-                                    tex_error.data.resize(texpress::file_size(load_path));
+                                    tex_error.data.resize(texpress::file_size(load_path) - sep_dim_size);
                                     texpress::file_read(load_path, (char*)tex_error.data.data(), tex_error.bytes());
                                     tex_out = &tex_error;
                                 }

@@ -21,10 +21,14 @@ They can be saved to RAW, KTX and VTK formats.
 - Dataset preview
 - Quality estimation
 
+### Usage
+
+Start the executable 
+
 ## Installation
 
 ### Dependencies
-Managed automatically via [vcpkg](https://vcpkg.io/).
+Dependencies are listed in `vcpkg.json` and are managed automatically via [vcpkg](https://vcpkg.io/).
 
 ### Building:
 - Clone the repository

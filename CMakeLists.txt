@@ -8,24 +8,6 @@ set                   (CMAKE_CXX_VISIBILITY_PRESET hidden)
 set                   (CMAKE_VISIBILITY_INLINES_HIDDEN 1)
 set                   (EXTERNAL_INSTALL_LOCATION ${CMAKE_BINARY_DIR}/external)
 
-set (WINDOWS 1)
-set (LINUX 0)
-
-include               (set_max_warning_level)
-set_max_warning_level ()
-
-#if(MSVC)
-#    add_compile_options(
-#        $<$<CONFIG:>:/MT> #---------|
-#        $<$<CONFIG:Debug>:/MTd> #---|-- Statically link the runtime libraries
-#        $<$<CONFIG:Release>:/MT> #--|
-#    )
-#endif()
-
-##################################################    Options     ##################################################
-option(BUILD_SHARED_LIBS "Build shared (dynamic) libraries." OFF)
-option(BUILD_TESTS "Build tests." OFF)
-
 ##################################################    Sources     ##################################################
 file(GLOB_RECURSE PROJECT_HEADERS include/*.h include/*.hpp)
 file(GLOB_RECURSE PROJECT_SOURCES source/*.c source/*.cpp)
