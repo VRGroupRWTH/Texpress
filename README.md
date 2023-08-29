@@ -80,6 +80,18 @@ In RAW format the data can be saved non-interleaved, where a seperate 4D dataset
 5. *Optionally:* If `Raw`, select whether to save the dataset non-interleaved
 6. Press `Load` button
 
+#### Compress Data
+
+To compress a loaded dataset, choose a quality preset and press the `Compress BC6H` button.
+
+The tool allows to compress either the `Source` or the `Normalized` dataset.
+To compress `Source`, uncheck "Use Normalized Data" and vice versa.
+When compressing the `Source` dataset, the data is encoded as **BC6HS** (the signed representation).
+Otherwise, for normalized data the **BC6HU** (the unsigned representation) is used.
+
+While the unsigned BC6H format allows for an addition bit in the mantissa, it also requires denormalization in the shader.
+For this purpose the former extrema of the dataset are saved seperately as "peaks".
+
 #### Errors
 
 The encoder tool can generate rough error estimates of the grid based on the distance between each original and compressed vector or based on the absolute difference of each component.
