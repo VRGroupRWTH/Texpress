@@ -71,7 +71,7 @@ BC6H encoded data cannot be saved as VTK.
 Additionally, VTK doesn't support 4D data so the supported datasets generate a seperate VTK file for each timestep containing the respective 3D state of the dataset.
 
 Moreover, data is per default stores in "interleaved" format, i.e., the data is saved as `(x, y, z)` vectors.
-In RAW format the data can be saved non-interleaved, where a seperate 4D dataset is saved for each component.
+In RAW format the data can be saved non-interleaved, where each component is saved as seperate 4D datasets concatenated as a single file.
 
 1. Press `Save` button
 2. Select data type: `[Source|Normalized|Peaks|Compressed|Decoded|Error]`
