@@ -78,18 +78,18 @@ In RAW format the data can be saved non-interleaved, where each component is sav
 3. Give path to dataset
 4. Select output type: `[KTX|Raw|VTK]`
 5. *Optionally:* If `Raw`, select whether to save the dataset non-interleaved
-6. Press `Load` button
+6. Press `Save` button
 
 ### Compress Data
 
 To compress a loaded dataset, choose a quality preset and press the `Compress BC6H` button.
 
 The tool allows to compress either the `Source` or the `Normalized` dataset.
-To compress `Source`, uncheck "Use Normalized Data" and vice versa.
+To compress `Source`, leave "Use Normalized Data" **un**checked and vice versa.
 When compressing the `Source` dataset, the data is encoded as **BC6HS** (the signed representation).
 Otherwise, for normalized data the **BC6HU** (the unsigned representation) is used.
 
-While the unsigned BC6H format allows for an addition bit in the mantissa, it also requires denormalization in the shader.
+While the unsigned BC6H format allows for an additional bit in the mantissa, it also requires normalization if the data contains negative values and thus requires denormalization in the shader after decompression.
 For this purpose the former extrema of the dataset are saved seperately as "peaks".
 
 ### Errors
