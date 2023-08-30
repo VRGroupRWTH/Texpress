@@ -21,7 +21,7 @@ They can be saved to RAW, KTX and VTK formats.
 - Dataset preview
 - Quality estimation
 
-### Usage
+## Usage
 
 1. Load file or generate ABC dataset
 2. *Optionally:* Normalize dataset to range `[0, 1]`
@@ -30,7 +30,7 @@ They can be saved to RAW, KTX and VTK formats.
 5. *Optionally:* Measure distance/component error
 6. Save
 
-#### Load HDF5 Data
+### Load HDF5 Data
 
 HDF5 data is expected to describe vectors of 3 components.
 Each component is loaded seperately.
@@ -42,7 +42,7 @@ They can reside in the same dataset in which case a corresponding stride and off
 4. Enter paths for the `[X|Y|Z]` datasets
 5. *Optionally:* Choose custom strides/offsets
 
-#### Load RAW Data
+### Load RAW Data
 
 RAW data is expected to describe the dataset dimensions `(X, Y, Z, T)` as integers first (in that order) and subsequently the dataset.
 For a dataset `datasetname.raw` dimensions can also be given via a seperate file with the naming convention `datasetname_dims.raw` (in this case, the data file **must not** contain dimensions).
@@ -53,7 +53,7 @@ The number of channels is calculated automatically based on the filesize and dim
 3. Give path to dataset
 4. Press `Load` button
 
-#### Load KTX Data
+### Load KTX Data
 
 KTX data is expected to be given according to the [official specs](https://registry.khronos.org/KTX/specs/1.0/ktxspec.v1.html).
 
@@ -62,7 +62,7 @@ KTX data is expected to be given according to the [official specs](https://regis
 3. Give path to dataset
 4. Press `Load` button
 
-#### Save Data
+### Save Data
 
 Data can be saved in VTK, RAW and KTX format.
 Exceptions are the "peaks" data (extrema) generated for normalization/denormalization and the BC6H encoded data.
@@ -80,7 +80,7 @@ In RAW format the data can be saved non-interleaved, where a seperate 4D dataset
 5. *Optionally:* If `Raw`, select whether to save the dataset non-interleaved
 6. Press `Load` button
 
-#### Compress Data
+### Compress Data
 
 To compress a loaded dataset, choose a quality preset and press the `Compress BC6H` button.
 
@@ -92,7 +92,7 @@ Otherwise, for normalized data the **BC6HU** (the unsigned representation) is us
 While the unsigned BC6H format allows for an addition bit in the mantissa, it also requires denormalization in the shader.
 For this purpose the former extrema of the dataset are saved seperately as "peaks".
 
-#### Errors
+### Errors
 
 The encoder tool can generate rough error estimates of the grid based on the distance between each original and compressed vector or based on the absolute difference of each component.
 To do this, the `Source` and `Decoded` datasets need to be populated.
